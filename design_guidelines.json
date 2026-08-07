@@ -1,0 +1,121 @@
+{
+  "theme": "light",
+  "archetype": "SWISS & HIGH-CONTRAST / THE PERFORMANCE PRO",
+  "typography": {
+    "headings": {
+      "fontFamily": "Outfit, sans-serif",
+      "weights": ["300", "500", "700", "900"],
+      "usage": "Utilitarian, sharp, clear. Tracking-tight for large headings."
+    },
+    "body": {
+      "fontFamily": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500", "600"],
+      "usage": "Highly legible, tabular numbers for pallet counts, order IDs, and PINs."
+    }
+  },
+  "colors": {
+    "primary": {
+      "DEFAULT": "#0A0A0A",
+      "foreground": "#FFFFFF"
+    },
+    "accent": {
+      "DEFAULT": "#0055FF",
+      "foreground": "#FFFFFF",
+      "description": "Klein Blue for primary actions (Save, Submit, Camera Trigger)"
+    },
+    "destructive": {
+      "DEFAULT": "#FF3B30",
+      "foreground": "#FFFFFF",
+      "description": "Signal Red for disputes, deletions, alerts."
+    },
+    "background": {
+      "DEFAULT": "#FFFFFF",
+      "secondary": "#F3F4F6",
+      "description": "Pure white for app background, 5% grey for subtle container distinctions."
+    },
+    "border": {
+      "DEFAULT": "#E5E7EB",
+      "focus": "#0A0A0A"
+    }
+  },
+  "visual_enhancers": {
+    "surfaces": "Grid Borders & Tactical Minimalism. Use 1px solid strokes instead of soft shadows. Replace soft shadows with 2px inner glow highlights or crisp 1px borders.",
+    "borders": "rounded-sm (4px) or completely sharp edges. No large border radii.",
+    "icons": "Use Phosphor Icons (Duotone or Bold weight) for high legibility in warehouse environments. Install via: yarn add @phosphor-icons/react"
+  },
+  "grids_and_layouts": {
+    "mobile": "Mobile-first approach. Large tap areas (min-h-[48px] or 3rem) for all interactive elements to support usage with gloves. Use standard Flexbox and Grid with `gap-4` or `gap-6`.",
+    "desktop": "High Density Grid (Mode B). grid-cols-1 md:grid-cols-3 lg:grid-cols-4 for Dashboard. Compact spacing for Admin Settings.",
+    "container_padding": "p-4 or p-6 on mobile to prevent text collision and provide generous breathing room. Use max-h-[80vh] md:max-h-none for images.",
+    "alignment": "Left-align forms, inputs, and tabular data. Center-align empty states or large visual calls-to-action (like Signature pad placeholder)."
+  },
+  "components": [
+    {
+      "name": "Order Receival Form",
+      "path": "frontend/src/components/receival-form.js",
+      "instructions": "Single-column stacked layout on mobile. High-contrast labels. Use Shadcn forms. Large touch targets for 'Dispute Yes/No' (Radio Group or segmented control). For PIN, use a custom numeric keypad or large standard password input."
+    },
+    {
+      "name": "Camera Multi-Photo Capture",
+      "path": "frontend/src/components/camera-capture.js",
+      "instructions": "Fullscreen overlay or modal when active. Bottom control bar with a massive, distinct capture button (Klein Blue). Thumbnail gallery below or next to the camera feed showing taken photos."
+    },
+    {
+      "name": "Signature Pad",
+      "path": "frontend/src/components/signature-pad.js",
+      "instructions": "A large canvas container with a solid 1px border. Includes 'Clear' (ghost button) and 'Save' (primary) buttons immediately below it."
+    },
+    {
+      "name": "Receival List & Toggles",
+      "path": "frontend/src/components/receival-list.js",
+      "instructions": "List of dense, rectangular items. Each row must display the supplier dropdown clearly. Inline toggles (Recorded/Invoice/Price) must use clear visual states (e.g., greyed out vs solid Klein Blue)."
+    },
+    {
+      "name": "Admin Dashboard",
+      "path": "frontend/src/components/admin-dashboard.js",
+      "instructions": "Bento Grid Protocol: High Density. Use Shadcn Tables for staff PINs, suppliers, and archive tool."
+    }
+  ],
+  "motion_and_interactions": {
+    "hover_states": "Crisp transitions. hover:bg-slate-100 on list items. Interactive elements must change state clearly. No muddy transitions.",
+    "focus_states": "High-contrast focus rings: focus:ring-2 focus:ring-black focus:ring-offset-2. Critical for accessibility.",
+    "micro_interactions": "Subtle scale down (active:scale-95) for buttons to simulate tactile feedback on mobile."
+  },
+  "accessibility": {
+    "contrast": "Strict APCA/WCAG AA adherence. Black text on white, White text on Black/Blue. Never use low-contrast grey placeholders.",
+    "test_ids": "All interactive elements MUST have descriptive data-testid attributes (e.g., data-testid='capture-photo-btn', data-testid='dispute-yes-radio').",
+    "touch_targets": "Minimum 44x44px (preferably 48px) for all touchable elements."
+  },
+  "media": {
+    "image_urls": {
+      "login_background": {
+        "url": "https://images.unsplash.com/photo-1740914994657-f1cdffdc418e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwyfHxsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjBtb2Rlcm58ZW58MHx8fHwxNzg2MTE1MzUyfDA&ixlib=rb-4.1.0&q=85",
+        "category": "background",
+        "description": "A yellow forklift in a large warehouse - ideal for login screen background to establish industrial context."
+      },
+      "empty_state_pallets": {
+        "url": "https://images.unsplash.com/photo-1729161632263-a0e0da501895?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxmb29kJTIwZGlzdHJpYnV0aW9uJTIwcGFsbGV0fGVufDB8fHx8MTc4NjExNTM1Mnww&ixlib=rb-4.1.0&q=85",
+        "category": "empty_state",
+        "description": "Stacked pallets - useful for an empty state in the Dashboard or Receival List."
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "You MUST use Shadcn components for forms, dropdowns, inputs, buttons.",
+    "All components must be .js files, NOT .tsx files. Follow standard Javascript React configurations.",
+    "Add 'data-testid' to all buttons, inputs, toggles, and form submissions.",
+    "Ensure the camera uses standard HTML5 WebRTC (`navigator.mediaDevices.getUserMedia`) configured to `facingMode: { exact: 'environment' }` for mobile rear camera.",
+    "Use 'react-signature-canvas' or similar for the signature pad component.",
+    "For the PDF / Printable delivery note, use standard CSS print media queries (`@media print`) or 'react-to-print' to strip UI elements.",
+    "Implement the mobile UI first, treating Desktop purely as the Manager/Admin dashboard view."
+  ],
+  "universal_guidelines_for_main_agent": [
+    "Do not converge toward generic outputs. Use the defined typography (Outfit + IBM Plex Sans).",
+    "DO NOT use dark colors as gradients. Stick to flat, solid backgrounds with 1px borders.",
+    "NEVER center align the entire app container.",
+    "Always apply transitions on specific interactive elements (e.g., transform, opacity), NEVER `transition: all`.",
+    "DO NOT use emojis for icons. Use the specified Phosphor Icons or Lucide-react.",
+    "All modals, dropdowns, and sticky headers MUST have an opaque background. DO NOT use transparent backgrounds over content.",
+    "GENERAL UI UX DESIGN GUIDELINES: Provide explicit error messages on forms, high contrast placeholders, and loading states for image processing/uploads."
+  ]
+}
