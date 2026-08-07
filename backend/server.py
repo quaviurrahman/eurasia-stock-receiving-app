@@ -6,6 +6,7 @@ load_dotenv(ROOT_DIR / '.env')
 
 import os
 import uuid
+import time
 import base64
 import logging
 from datetime import datetime, timezone, timedelta
@@ -62,18 +63,24 @@ def init_storage(force: bool = False):
 
 def put_object(path: str, data: bytes, content_type: str) -> dict:
     key = init_storage()
-    resp = requests.put(
-        f"{STORAGE_URL}/objects/{path}",
-        headers={"X-Storage-Key": key, "Content-Type": content_type},
-        data=data, timeout=120,
-    )
-    if resp.status_code == 404:
-        key = init_storage(force=True)
+    last = None
+    for attempt in range(3):
         resp = requests.put(
             f"{STORAGE_URL}/objects/{path}",
             headers={"X-Storage-Key": key, "Content-Type": content_type},
             data=data, timeout=120,
         )
+        if resp.status_code == 404:
+            key = init_storage(force=True)
+            continue
+        if resp.status_code in (500, 502, 503):
+            last = resp
+            time.sleep(0.6 * (attempt + 1))
+            continue
+        resp.raise_for_status()
+        return resp.json()
+    if last is not None:
+        last.raise_for_status()
     resp.raise_for_status()
     return resp.json()
 
