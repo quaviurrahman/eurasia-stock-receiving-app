@@ -157,11 +157,11 @@ const SettingsPage = () => {
     <div className="max-w-3xl mx-auto">
       <h1 className="font-head font-black text-3xl sm:text-4xl tracking-tight mb-6">Admin</h1>
       <Tabs defaultValue="suppliers">
-        <TabsList className="rounded-sm h-11">
-          <TabsTrigger value="suppliers" data-testid="tab-suppliers">Suppliers</TabsTrigger>
-          <TabsTrigger value="statuses" data-testid="tab-statuses">Statuses</TabsTrigger>
-          <TabsTrigger value="staff" data-testid="tab-staff">Staff PINs</TabsTrigger>
-          <TabsTrigger value="archive" data-testid="tab-archive">Archive</TabsTrigger>
+        <TabsList className="rounded-sm h-auto grid grid-cols-4 w-full p-1">
+          <TabsTrigger value="suppliers" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-suppliers">Suppliers</TabsTrigger>
+          <TabsTrigger value="statuses" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-statuses">Statuses</TabsTrigger>
+          <TabsTrigger value="staff" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-staff">Staff PINs</TabsTrigger>
+          <TabsTrigger value="archive" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-archive">Archive</TabsTrigger>
         </TabsList>
 
         <TabsContent value="suppliers" className="mt-4">

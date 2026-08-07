@@ -11,7 +11,7 @@ const NavBtn = ({ active, onClick, icon: Icon, label, testid }) => (
       active ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-secondary"
     }`}
   >
-    <Icon size={18} weight="bold" />
+    <Icon size={18} />
     <span>{label}</span>
   </button>
 );

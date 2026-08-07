@@ -84,17 +84,32 @@ const DEFAULT_FILTERS = {
   dispute: "all",
 };
 
+const STORAGE_KEY = "eurasia_receival_filters";
+const loadStored = () => {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+};
+
 const ReceivalListPage = () => {
   const navigate = useNavigate();
+  const stored = loadStored();
   const [rows, setRows] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [search, setSearch] = useState(stored.search || "");
+  const [showFilters, setShowFilters] = useState(stored.showFilters || false);
+  const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, ...(stored.filters || {}) });
   const [edit, setEdit] = useState(null); // record being edited
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Persist search + filters so they survive reload and back-navigation.
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ search, showFilters, filters }));
+  }, [search, showFilters, filters]);
 
   const load = async () => {
     try {
