@@ -16,6 +16,7 @@ import {
 import SupplierCombobox from "@/components/SupplierCombobox";
 import CameraCapture from "@/components/CameraCapture";
 import SignaturePad from "@/components/SignaturePad";
+import { SlipsEditor } from "@/components/Slips";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, CheckCircle2, PenLine, X, UserRound } from "lucide-react";
@@ -50,6 +51,7 @@ const NewReceivalPage = () => {
     signedBy: "",
   });
   const [items, setItems] = useState([]);
+  const [slips, setSlips] = useState([]);
   const [images, setImages] = useState([]);
   const [signatures, setSignatures] = useState([]); // [{data, signedBy}]
 
@@ -101,6 +103,10 @@ const NewReceivalPage = () => {
           caseQty: it.caseQty ? Number(it.caseQty) : null,
           qop: it.qop ? Number(it.qop) : null,
         })),
+      slips: slips.map((s) => ({
+        label: s.label || "",
+        entries: (s.entries || []).map((n) => Number(n)),
+      })),
       base64Images: images,
       base64Signatures: allSigs.map((s) => s.data),
       signedByNames: allSigs.map((s) => s.signedBy),
@@ -263,7 +269,14 @@ const NewReceivalPage = () => {
           </Button>
         </Section>
 
-        <Section n="3" title="Photos (add multiple)">
+        <Section n="3" title="Slips (number tally)">
+          <p className="text-sm text-muted-foreground mb-3 -mt-1">
+            Add one or more slips and punch in numbers. Count and sum are calculated for each slip.
+          </p>
+          <SlipsEditor slips={slips} onChange={setSlips} />
+        </Section>
+
+        <Section n="4" title="Photos (add multiple)">
           <CameraCapture
             images={images}
             onCapture={(b64) => setImages((p) => [...p, b64])}
@@ -271,7 +284,7 @@ const NewReceivalPage = () => {
           />
         </Section>
 
-        <Section n="4" title="Signatures (add multiple)">
+        <Section n="5" title="Signatures (add multiple)">
           <SignaturePad ref={sigRef} />
           <div className="mt-3 grid sm:grid-cols-[1fr_auto] gap-2 items-end">
             <div>
@@ -315,7 +328,7 @@ const NewReceivalPage = () => {
           )}
         </Section>
 
-        <Section n="5" title="Received by">
+        <Section n="6" title="Received by">
           <div className="flex items-center gap-3 border border-border rounded-sm px-4 h-12" data-testid="received-by">
             <UserRound size={18} className="text-muted-foreground" />
             <span className="text-sm font-medium">{user?.name}</span>

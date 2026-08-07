@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import CameraCapture from "@/components/CameraCapture";
 import SignaturePad from "@/components/SignaturePad";
+import { SlipsEditor, SlipsView } from "@/components/Slips";
 import {
   Table,
   TableBody,
@@ -48,7 +49,7 @@ const ReceivalDetailsPage = () => {
   const [saving, setSaving] = useState(false);
 
   // edit drafts
-  const [draft, setDraft] = useState({ palletCount: 0, observation: "", items: [] });
+  const [draft, setDraft] = useState({ palletCount: 0, observation: "", items: [], slips: [] });
   const [removeImagePaths, setRemoveImagePaths] = useState([]);
   const [newImages, setNewImages] = useState([]);
   const [removeSigPaths, setRemoveSigPaths] = useState([]);
@@ -74,6 +75,7 @@ const ReceivalDetailsPage = () => {
       palletCount: rec.palletCount ?? 0,
       observation: rec.observation || "",
       items: (rec.items || []).map((it) => ({ ...it })),
+      slips: (rec.slips || []).map((s) => ({ label: s.label || "", entries: [...(s.entries || [])] })),
     });
     setRemoveImagePaths([]);
     setNewImages([]);
@@ -115,6 +117,10 @@ const ReceivalDetailsPage = () => {
             caseQty: it.caseQty !== "" && it.caseQty != null ? Number(it.caseQty) : null,
             qop: it.qop !== "" && it.qop != null ? Number(it.qop) : null,
           })),
+        slips: (draft.slips || []).map((s) => ({
+          label: s.label || "",
+          entries: (s.entries || []).map((n) => Number(n)),
+        })),
       });
       if (newImages.length || removeImagePaths.length || newSignatures.length || removeSigPaths.length) {
         await api.post(`/receivals/${id}/media`, {
@@ -276,6 +282,18 @@ const ReceivalDetailsPage = () => {
                   ))}
                 </TableBody>
               </Table>
+            )}
+          </Card>
+        )}
+
+        {/* Slips */}
+        {(editing || rec.slips?.length > 0) && (
+          <Card className="rounded-sm border-border p-5">
+            <h3 className="font-head font-bold text-lg mb-3">Slips</h3>
+            {editing ? (
+              <SlipsEditor slips={draft.slips} onChange={(v) => setDraft((d) => ({ ...d, slips: v }))} />
+            ) : (
+              <SlipsView slips={rec.slips} />
             )}
           </Card>
         )}

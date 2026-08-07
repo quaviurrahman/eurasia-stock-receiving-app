@@ -205,6 +205,11 @@ class ReceivalItem(BaseModel):
     qop: Optional[float] = None
 
 
+class Slip(BaseModel):
+    label: str = ""
+    entries: List[float] = []
+
+
 class ReceivalCreate(BaseModel):
     supplierId: Optional[str] = None
     statusId: Optional[str] = None
@@ -214,6 +219,7 @@ class ReceivalCreate(BaseModel):
     palletCount: Optional[int] = 0
     pin: Optional[str] = None
     items: List[ReceivalItem] = []
+    slips: List[Slip] = []
     base64Images: List[str] = []
     base64Signatures: List[str] = []
     signedByNames: List[str] = []
@@ -230,6 +236,7 @@ class ReceivalUpdate(BaseModel):
     invoiceReceived: Optional[bool] = None
     priceChecked: Optional[bool] = None
     items: Optional[List[ReceivalItem]] = None
+    slips: Optional[List[Slip]] = None
 
 
 class MediaUpdate(BaseModel):
@@ -403,6 +410,7 @@ async def create_receival(data: ReceivalCreate, current=Depends(get_current_user
         "invoiceReceived": False,
         "priceChecked": False,
         "items": [i.model_dump() for i in data.items],
+        "slips": [s.model_dump() for s in data.slips],
         "images": image_paths,
         "signatures": signatures,
         "changeLog": [_log(current, "Created receival record")],
@@ -414,10 +422,11 @@ async def create_receival(data: ReceivalCreate, current=Depends(get_current_user
 
 
 # Fields staff are allowed to edit; admins may edit everything.
-STAFF_EDITABLE = {"palletCount", "items", "observation"}
+STAFF_EDITABLE = {"palletCount", "items", "observation", "slips"}
 FIELD_LABELS = {
     "palletCount": "pallet count",
     "items": "items",
+    "slips": "slips",
     "observation": "observation",
     "supplierId": "supplier",
     "statusId": "status",
@@ -444,9 +453,9 @@ async def update_receival(rec_id: str, data: ReceivalUpdate, current=Depends(get
     changes = {}
     for k, v in update.items():
         old = rec.get(k)
-        if k == "items":
+        if k in ("items", "slips"):
             if old != v:
-                changes[FIELD_LABELS.get(k, k)] = "updated items"
+                changes[FIELD_LABELS.get(k, k)] = f"updated {FIELD_LABELS.get(k, k)}"
         elif old != v:
             changes[FIELD_LABELS.get(k, k)] = {"from": old, "to": v}
 
