@@ -542,9 +542,9 @@ async def update_receival(rec_id: str, data: ReceivalUpdate, current=Depends(get
         if forbidden:
             raise HTTPException(status_code=403, detail="Staff may not edit: " + ", ".join(forbidden))
 
-    # Auto-tick "Invoice received" when an invoice number is entered.
-    if update.get("invoiceNumber") and not rec.get("invoiceReceived"):
-        update["invoiceReceived"] = True
+    # Auto-tick "Invoice received" when an invoice number is entered; un-tick when cleared.
+    if "invoiceNumber" in update:
+        update["invoiceReceived"] = bool(update["invoiceNumber"])
 
     changes = {}
     for k, v in update.items():
