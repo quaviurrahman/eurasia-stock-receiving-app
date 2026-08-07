@@ -8,6 +8,7 @@ import LoginPage from "@/pages/LoginPage";
 import ReceivalListPage from "@/pages/ReceivalListPage";
 import NewReceivalPage from "@/pages/NewReceivalPage";
 import ReceivalDetailsPage from "@/pages/ReceivalDetailsPage";
+import DashboardPage from "@/pages/DashboardPage";
 import SettingsPage from "@/pages/SettingsPage";
 
 const Protected = ({ children }) => {
@@ -46,6 +47,14 @@ function App() {
               <Route index element={<ReceivalListPage />} />
               <Route path="new" element={<NewReceivalPage />} />
               <Route path="receival/:id" element={<ReceivalDetailsPage />} />
+              <Route
+                path="dashboard"
+                element={
+                  <AdminOnly>
+                    <DashboardPage />
+                  </AdminOnly>
+                }
+              />
               <Route
                 path="settings"
                 element={

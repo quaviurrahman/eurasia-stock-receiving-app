@@ -24,6 +24,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import SupplierCombobox from "@/components/SupplierCombobox";
+import { fmt } from "@/components/Slips";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import {
@@ -35,6 +36,7 @@ import {
   Camera,
   Package,
   Pencil,
+  Calculator,
   SlidersHorizontal,
   X,
 } from "lucide-react";
@@ -393,6 +395,17 @@ const ReceivalListPage = () => {
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
                       <Package size={12} /> {r.palletCount} pallets
                     </span>
+                    {r.slips?.length > 0 &&
+                      (() => {
+                        const entries = r.slips.flatMap((s) => s.entries || []);
+                        const sum = entries.reduce((a, b) => a + (Number(b) || 0), 0);
+                        return (
+                          <Badge variant="outline" className="rounded-sm" data-testid={`slip-total-${r.id}`}>
+                            <Calculator size={12} className="mr-1" />
+                            {r.slips.length} slip{r.slips.length !== 1 ? "s" : ""} · {entries.length} entries · Σ {fmt(sum)}
+                          </Badge>
+                        );
+                      })()}
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2">

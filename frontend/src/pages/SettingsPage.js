@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Trash2, Download, Archive } from "lucide-react";
 
@@ -76,24 +83,33 @@ const SettingsPage = () => {
   const [statuses, setStatuses] = useState([]);
   const [staff, setStaff] = useState([]);
   const [archive, setArchive] = useState({ count: 0, records: [] });
+  const [defaultStatusId, setDefaultStatusId] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const [sup, stat, stf, arc] = await Promise.all([
+    const [sup, stat, stf, arc, cfg] = await Promise.all([
       api.get("/suppliers"),
       api.get("/statuses"),
       api.get("/staff"),
       api.get("/archive/preview"),
+      api.get("/config"),
     ]);
     setSuppliers(sup.data);
     setStatuses(stat.data);
     setStaff(stf.data);
     setArchive(arc.data);
+    setDefaultStatusId(cfg.data?.defaultStatusId || "");
   };
 
   useEffect(() => {
     load();
   }, []);
+
+  const saveDefaultStatus = async (id) => {
+    setDefaultStatusId(id);
+    await api.put("/config", { defaultStatusId: id || null });
+    toast.success("Default status saved");
+  };
 
   const addSupplier = async (name) => {
     await api.post("/suppliers", { name });
@@ -174,7 +190,26 @@ const SettingsPage = () => {
             testid="supplier"
           />
         </TabsContent>
-        <TabsContent value="statuses" className="mt-4">
+        <TabsContent value="statuses" className="mt-4 space-y-4">
+          <Card className="rounded-sm border-border p-5">
+            <h3 className="font-head font-bold text-lg mb-1">Default status</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              New receivals start with this status unless another is picked.
+            </p>
+            <Select value={defaultStatusId || "none"} onValueChange={(v) => saveDefaultStatus(v === "none" ? "" : v)}>
+              <SelectTrigger className="h-11 rounded-sm max-w-sm" data-testid="default-status-select">
+                <SelectValue placeholder="No default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No default</SelectItem>
+                {statuses.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Card>
           <CrudList
             title="Statuses"
             items={statuses}

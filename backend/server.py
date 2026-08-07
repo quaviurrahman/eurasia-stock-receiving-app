@@ -189,6 +189,10 @@ class NamedInput(BaseModel):
     name: str
 
 
+class ConfigInput(BaseModel):
+    defaultStatusId: Optional[str] = None
+
+
 class StaffInput(BaseModel):
     name: str
     pin: str
@@ -357,6 +361,90 @@ async def delete_status(status_id: str, current=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# App config (admin-configurable defaults)
+# ---------------------------------------------------------------------------
+@api_router.get("/config")
+async def get_config(current=Depends(get_current_user)):
+    cfg = await db.config.find_one({"key": "app"}, {"_id": 0})
+    return cfg or {"key": "app", "defaultStatusId": None}
+
+
+@api_router.put("/config")
+async def set_config(data: ConfigInput, current=Depends(require_admin)):
+    await db.config.update_one(
+        {"key": "app"}, {"$set": {"defaultStatusId": data.defaultStatusId}}, upsert=True
+    )
+    return {"key": "app", "defaultStatusId": data.defaultStatusId}
+
+
+# ---------------------------------------------------------------------------
+# Analytics dashboard
+# ---------------------------------------------------------------------------
+@api_router.get("/analytics")
+async def analytics(current=Depends(require_admin)):
+    from collections import defaultdict
+
+    recs = await db.receivals.find(
+        {}, {"_id": 0, "createdAt": 1, "supplierId": 1, "statusId": 1, "palletCount": 1, "invoiceReceived": 1}
+    ).to_list(20000)
+    statuses = await db.statuses.find({}, {"_id": 0}).to_list(1000)
+    suppliers = await db.suppliers.find({}, {"_id": 0}).to_list(1000)
+    sname = {s["id"]: s["name"] for s in statuses}
+    supname = {s["id"]: s["name"] for s in suppliers}
+
+    status_counts = defaultdict(int)
+    supplier_dates = defaultdict(list)
+    daily, weekly, monthly = defaultdict(int), defaultdict(int), defaultdict(int)
+    pallets_total = 0
+    invoices_pending = 0
+
+    for r in recs:
+        status_counts[sname.get(r.get("statusId"), "No status")] += 1
+        pallets_total += r.get("palletCount") or 0
+        if not r.get("invoiceReceived"):
+            invoices_pending += 1
+        created = r.get("createdAt")
+        if created:
+            try:
+                d = datetime.fromisoformat(created)
+            except Exception:
+                continue
+            supplier_dates[r.get("supplierId")].append(d)
+            daily[d.date().isoformat()] += 1
+            iso = d.isocalendar()
+            weekly[f"{iso[0]}-W{iso[1]:02d}"] += 1
+            monthly[f"{d.year}-{d.month:02d}"] += 1
+
+    supplier_freq = []
+    for sid, dates in supplier_dates.items():
+        dates.sort()
+        count = len(dates)
+        avg_interval = None
+        if count >= 2:
+            gaps = [(dates[i] - dates[i - 1]).total_seconds() / 86400 for i in range(1, count)]
+            avg_interval = round(sum(gaps) / len(gaps), 1)
+        supplier_freq.append(
+            {"supplier": supname.get(sid, "Unassigned"), "count": count, "avgIntervalDays": avg_interval}
+        )
+    supplier_freq.sort(key=lambda x: -x["count"])
+
+    def series(d, n):
+        return [{"label": k, "count": d[k]} for k in sorted(d.keys())][-n:]
+
+    return {
+        "total": len(recs),
+        "palletsTotal": pallets_total,
+        "invoicesPending": invoices_pending,
+        "suppliersCount": len(suppliers),
+        "statusCounts": [{"status": k, "count": v} for k, v in status_counts.items()],
+        "supplierFrequency": supplier_freq,
+        "daily": series(daily, 30),
+        "weekly": series(weekly, 12),
+        "monthly": series(monthly, 12),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Receivals (order receival confirmations)
 # ---------------------------------------------------------------------------
 async def _enrich(rec: dict) -> dict:
@@ -396,10 +484,15 @@ async def create_receival(data: ReceivalCreate, current=Depends(get_current_user
             signer = data.signedByNames[i] if i < len(data.signedByNames) else "Unknown"
             signatures.append({"signedBy": signer or "Unknown", "path": p})
 
+    status_id = data.statusId
+    if not status_id:
+        cfg = await db.config.find_one({"key": "app"})
+        status_id = cfg.get("defaultStatusId") if cfg else None
+
     doc = {
         "id": str(uuid.uuid4()),
         "supplierId": data.supplierId,
-        "statusId": data.statusId,
+        "statusId": status_id,
         "deliveryDate": data.deliveryDate,
         "observation": data.observation,
         "palletCount": data.palletCount or 0,
@@ -448,6 +541,10 @@ async def update_receival(rec_id: str, data: ReceivalUpdate, current=Depends(get
         forbidden = set(update) - STAFF_EDITABLE
         if forbidden:
             raise HTTPException(status_code=403, detail="Staff may not edit: " + ", ".join(forbidden))
+
+    # Auto-tick "Invoice received" when an invoice number is entered.
+    if update.get("invoiceNumber") and not rec.get("invoiceReceived"):
+        update["invoiceReceived"] = True
 
     changes = {}
     for k, v in update.items():

@@ -56,10 +56,18 @@ const NewReceivalPage = () => {
 
   useEffect(() => {
     (async () => {
-      const [sup, stat] = await Promise.all([api.get("/suppliers"), api.get("/statuses")]);
+      const [sup, stat, cfg] = await Promise.all([
+        api.get("/suppliers"),
+        api.get("/statuses"),
+        api.get("/config"),
+      ]);
       setSuppliers(sup.data);
       setStatuses(stat.data);
+      if (cfg.data?.defaultStatusId) {
+        set("statusId", cfg.data.defaultStatusId);
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));

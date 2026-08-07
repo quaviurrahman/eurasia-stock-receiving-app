@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api, fileUrl } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ const Field = ({ label, value }) => (
 const ReceivalDetailsPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const sigRef = useRef(null);
   const [rec, setRec] = useState(undefined);
   const [zoom, setZoom] = useState(null);
@@ -48,7 +50,7 @@ const ReceivalDetailsPage = () => {
   const [saving, setSaving] = useState(false);
 
   // edit drafts
-  const [draft, setDraft] = useState({ palletCount: 0, observation: "", items: [], slips: [] });
+  const [draft, setDraft] = useState({ palletCount: 0, observation: "", items: [], slips: [], invoiceNumber: "" });
   const [removeImagePaths, setRemoveImagePaths] = useState([]);
   const [newImages, setNewImages] = useState([]);
   const [removeSigPaths, setRemoveSigPaths] = useState([]);
@@ -75,6 +77,7 @@ const ReceivalDetailsPage = () => {
       observation: rec.observation || "",
       items: (rec.items || []).map((it) => ({ ...it })),
       slips: (rec.slips || []).map((s) => ({ label: s.label || "", entries: [...(s.entries || [])] })),
+      invoiceNumber: rec.invoiceNumber || "",
     });
     setRemoveImagePaths([]);
     setNewImages([]);
@@ -105,7 +108,7 @@ const ReceivalDetailsPage = () => {
   const save = async () => {
     setSaving(true);
     try {
-      await api.put(`/receivals/${id}`, {
+      const payload = {
         palletCount: parseInt(draft.palletCount) || 0,
         observation: draft.observation,
         items: draft.items
@@ -120,7 +123,9 @@ const ReceivalDetailsPage = () => {
           label: s.label || "",
           entries: (s.entries || []).map((n) => Number(n)),
         })),
-      });
+      };
+      if (isAdmin) payload.invoiceNumber = draft.invoiceNumber || "";
+      await api.put(`/receivals/${id}`, payload);
       if (newImages.length || removeImagePaths.length || newSignatures.length || removeSigPaths.length) {
         await api.post(`/receivals/${id}/media`, {
           addImages: newImages,
@@ -215,7 +220,20 @@ const ReceivalDetailsPage = () => {
             ) : (
               <Field label="Pallets" value={rec.palletCount} />
             )}
-            <Field label="Invoice number" value={rec.invoiceNumber} />
+            {editing && isAdmin ? (
+              <div>
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Invoice number</Label>
+                <Input
+                  value={draft.invoiceNumber}
+                  onChange={(e) => setDraft((d) => ({ ...d, invoiceNumber: e.target.value }))}
+                  placeholder="e.g. INV-10234"
+                  className="h-10 rounded-sm mt-1"
+                  data-testid="edit-detail-invoice-number"
+                />
+              </div>
+            ) : (
+              <Field label="Invoice number" value={rec.invoiceNumber} />
+            )}
           </div>
           <div className="mt-4">
             {editing ? (
