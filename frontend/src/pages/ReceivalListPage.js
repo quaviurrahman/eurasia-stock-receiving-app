@@ -24,6 +24,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import SupplierCombobox from "@/components/SupplierCombobox";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import {
   Search,
@@ -95,6 +96,7 @@ const loadStored = () => {
 
 const ReceivalListPage = () => {
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const stored = loadStored();
   const [rows, setRows] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -396,17 +398,23 @@ const ReceivalListPage = () => {
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide sm:w-20">
                       Supplier
                     </span>
-                    <div className="sm:max-w-xs w-full">
-                      <SupplierCombobox
-                        suppliers={suppliers}
-                        value={r.supplierId || ""}
-                        onChange={(v) => reassignSupplier(r.id, v)}
-                        placeholder="Assign supplier"
-                        allowClear
-                        testid={`supplier-dropdown-${r.id}`}
-                        className="!h-11"
-                      />
-                    </div>
+                    {isAdmin ? (
+                      <div className="sm:max-w-xs w-full">
+                        <SupplierCombobox
+                          suppliers={suppliers}
+                          value={r.supplierId || ""}
+                          onChange={(v) => reassignSupplier(r.id, v)}
+                          placeholder="Assign supplier"
+                          allowClear
+                          testid={`supplier-dropdown-${r.id}`}
+                          className="!h-11"
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-sm font-medium" data-testid={`supplier-name-${r.id}`}>
+                        {r.supplier?.name || "—"}
+                      </span>
+                    )}
                   </div>
 
                   <div className="text-sm text-muted-foreground">
@@ -414,23 +422,35 @@ const ReceivalListPage = () => {
                     {r.observation && <> — “{r.observation}”</>}
                   </div>
 
-                  <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
-                    <Toggle checked={!!r.recordedInSystem} onChange={(v) => toggle(r.id, "recordedInSystem", v)} label="Recorded" testid={`toggle-recorded-${r.id}`} />
-                    <Toggle checked={!!r.invoiceReceived} onChange={(v) => toggle(r.id, "invoiceReceived", v)} label="Invoice received" testid={`toggle-invoice-${r.id}`} />
-                    <Toggle checked={!!r.priceChecked} onChange={(v) => toggle(r.id, "priceChecked", v)} label="Price checked" testid={`toggle-price-${r.id}`} />
-                  </div>
+                  {isAdmin ? (
+                    <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
+                      <Toggle checked={!!r.recordedInSystem} onChange={(v) => toggle(r.id, "recordedInSystem", v)} label="Recorded" testid={`toggle-recorded-${r.id}`} />
+                      <Toggle checked={!!r.invoiceReceived} onChange={(v) => toggle(r.id, "invoiceReceived", v)} label="Invoice received" testid={`toggle-invoice-${r.id}`} />
+                      <Toggle checked={!!r.priceChecked} onChange={(v) => toggle(r.id, "priceChecked", v)} label="Price checked" testid={`toggle-price-${r.id}`} />
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {r.recordedInSystem && <Badge variant="secondary" className="rounded-sm">Recorded</Badge>}
+                      {r.invoiceReceived && <Badge variant="secondary" className="rounded-sm">Invoice received</Badge>}
+                      {r.priceChecked && <Badge variant="secondary" className="rounded-sm">Price checked</Badge>}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex md:flex-col gap-2 justify-end">
-                  <Button variant="outline" onClick={() => setEdit({ ...r })} className="h-10 rounded-sm" data-testid={`edit-${r.id}`}>
-                    <Pencil size={16} className="mr-2" /> Edit
-                  </Button>
+                  {isAdmin && (
+                    <Button variant="outline" onClick={() => setEdit({ ...r })} className="h-10 rounded-sm" data-testid={`edit-${r.id}`}>
+                      <Pencil size={16} className="mr-2" /> Edit
+                    </Button>
+                  )}
                   <Button variant="outline" onClick={() => navigate(`/receival/${r.id}`)} className="h-10 rounded-sm" data-testid={`view-${r.id}`}>
-                    <Eye size={16} className="mr-2" /> View
+                    <Eye size={16} className="mr-2" /> {isAdmin ? "View" : "Open"}
                   </Button>
-                  <Button variant="ghost" onClick={() => remove(r.id)} className="h-10 rounded-sm text-destructive hover:text-destructive hover:bg-destructive/10" data-testid={`delete-${r.id}`}>
-                    <Trash2 size={16} />
-                  </Button>
+                  {isAdmin && (
+                    <Button variant="ghost" onClick={() => remove(r.id)} className="h-10 rounded-sm text-destructive hover:text-destructive hover:bg-destructive/10" data-testid={`delete-${r.id}`}>
+                      <Trash2 size={16} />
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>

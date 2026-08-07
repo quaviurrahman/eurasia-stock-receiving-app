@@ -117,9 +117,11 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-def create_access_token(user_id: str, email: str) -> str:
+def create_access_token(user_id: str, role: str, name: str, email: str = None) -> str:
     payload = {
         "sub": user_id,
+        "role": role,
+        "name": name,
         "email": email,
         "exp": datetime.now(timezone.utc) + timedelta(days=7),
         "type": "access",
@@ -133,14 +135,39 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     token = credentials.credentials
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        role = payload.get("role", "admin")
+        if role == "staff":
+            staff = await db.staff.find_one({"id": payload["sub"]}, {"_id": 0, "pin": 0})
+            if not staff:
+                raise HTTPException(status_code=401, detail="Staff not found")
+            return {"id": staff["id"], "name": staff.get("name"), "role": "staff"}
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        user["role"] = user.get("role", "admin")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+
+async def require_admin(current=Depends(get_current_user)) -> dict:
+    if current.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current
+
+
+def _log(user: dict, action: str, changes: dict = None) -> dict:
+    entry = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "by": user.get("name"),
+        "role": user.get("role"),
+        "action": action,
+    }
+    if changes:
+        entry["changes"] = changes
+    return entry
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +205,7 @@ class ReceivalCreate(BaseModel):
     observation: str = ""
     dispute: bool = False
     palletCount: Optional[int] = 0
-    pin: str
+    pin: Optional[str] = None
     items: List[ReceivalItem] = []
     base64Images: List[str] = []
     base64Signatures: List[str] = []
@@ -198,6 +225,14 @@ class ReceivalUpdate(BaseModel):
     items: Optional[List[ReceivalItem]] = None
 
 
+class MediaUpdate(BaseModel):
+    addImages: List[str] = []
+    removeImagePaths: List[str] = []
+    addSignatures: List[str] = []
+    addSignedByNames: List[str] = []
+    removeSignaturePaths: List[str] = []
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
@@ -207,10 +242,22 @@ async def login(data: LoginInput):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    token = create_access_token(user["id"], user["email"])
+    token = create_access_token(user["id"], user.get("role", "admin"), user.get("name"), user["email"])
     return {
         "access_token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user.get("name"), "role": user.get("role")},
+        "user": {"id": user["id"], "email": user["email"], "name": user.get("name"), "role": user.get("role", "admin")},
+    }
+
+
+@api_router.post("/auth/staff-login")
+async def staff_login(data: PinInput):
+    staff = await db.staff.find_one({"pin": data.pin})
+    if not staff:
+        raise HTTPException(status_code=401, detail="Invalid PIN")
+    token = create_access_token(staff["id"], "staff", staff.get("name"))
+    return {
+        "access_token": token,
+        "user": {"id": staff["id"], "name": staff.get("name"), "role": "staff"},
     }
 
 
@@ -223,19 +270,19 @@ async def me(current=Depends(get_current_user)):
 # Staff (PIN identity)
 # ---------------------------------------------------------------------------
 @api_router.get("/staff")
-async def list_staff(current=Depends(get_current_user)):
+async def list_staff(current=Depends(require_admin)):
     return await db.staff.find({}, {"_id": 0, "pin": 0}).to_list(1000)
 
 
 @api_router.post("/staff")
-async def add_staff(data: StaffInput, current=Depends(get_current_user)):
+async def add_staff(data: StaffInput, current=Depends(require_admin)):
     doc = {"id": str(uuid.uuid4()), "name": data.name, "pin": data.pin}
     await db.staff.insert_one(doc)
     return {"id": doc["id"], "name": doc["name"]}
 
 
 @api_router.delete("/staff/{staff_id}")
-async def delete_staff(staff_id: str, current=Depends(get_current_user)):
+async def delete_staff(staff_id: str, current=Depends(require_admin)):
     await db.staff.delete_one({"id": staff_id})
     return {"ok": True}
 
@@ -257,20 +304,20 @@ async def list_suppliers():
 
 
 @api_router.post("/suppliers")
-async def add_supplier(data: NamedInput, current=Depends(get_current_user)):
+async def add_supplier(data: NamedInput, current=Depends(require_admin)):
     doc = {"id": str(uuid.uuid4()), "name": data.name}
     await db.suppliers.insert_one(doc)
     return {"id": doc["id"], "name": doc["name"]}
 
 
 @api_router.put("/suppliers/{supplier_id}")
-async def update_supplier(supplier_id: str, data: NamedInput, current=Depends(get_current_user)):
+async def update_supplier(supplier_id: str, data: NamedInput, current=Depends(require_admin)):
     await db.suppliers.update_one({"id": supplier_id}, {"$set": {"name": data.name}})
     return {"ok": True}
 
 
 @api_router.delete("/suppliers/{supplier_id}")
-async def delete_supplier(supplier_id: str, current=Depends(get_current_user)):
+async def delete_supplier(supplier_id: str, current=Depends(require_admin)):
     await db.suppliers.delete_one({"id": supplier_id})
     return {"ok": True}
 
@@ -284,14 +331,14 @@ async def list_statuses():
 
 
 @api_router.post("/statuses")
-async def add_status(data: NamedInput, current=Depends(get_current_user)):
+async def add_status(data: NamedInput, current=Depends(require_admin)):
     doc = {"id": str(uuid.uuid4()), "name": data.name}
     await db.statuses.insert_one(doc)
     return {"id": doc["id"], "name": doc["name"]}
 
 
 @api_router.delete("/statuses/{status_id}")
-async def delete_status(status_id: str, current=Depends(get_current_user)):
+async def delete_status(status_id: str, current=Depends(require_admin)):
     await db.statuses.delete_one({"id": status_id})
     return {"ok": True}
 
@@ -322,11 +369,7 @@ async def get_receival(rec_id: str, current=Depends(get_current_user)):
 
 
 @api_router.post("/receivals")
-async def create_receival(data: ReceivalCreate):
-    staff = await db.staff.find_one({"pin": data.pin})
-    if not staff:
-        raise HTTPException(status_code=401, detail="Invalid PIN")
-
+async def create_receival(data: ReceivalCreate, current=Depends(get_current_user)):
     image_paths = []
     for b64 in data.base64Images:
         p = save_base64_image(b64, "photos")
@@ -348,18 +391,35 @@ async def create_receival(data: ReceivalCreate):
         "observation": data.observation,
         "dispute": data.dispute,
         "palletCount": data.palletCount or 0,
-        "receivedBy": staff["name"],
+        "receivedBy": current.get("name"),
         "recordedInSystem": False,
         "invoiceReceived": False,
         "priceChecked": False,
         "items": [i.model_dump() for i in data.items],
         "images": image_paths,
         "signatures": signatures,
+        "changeLog": [_log(current, "Created receival record")],
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
     await db.receivals.insert_one(doc)
     doc.pop("_id", None)
     return await _enrich(doc)
+
+
+# Fields staff are allowed to edit; admins may edit everything.
+STAFF_EDITABLE = {"palletCount", "items", "observation"}
+FIELD_LABELS = {
+    "palletCount": "pallet count",
+    "items": "items",
+    "observation": "observation",
+    "supplierId": "supplier",
+    "statusId": "status",
+    "deliveryDate": "delivery date",
+    "dispute": "dispute",
+    "recordedInSystem": "recorded",
+    "invoiceReceived": "invoice received",
+    "priceChecked": "price checked",
+}
 
 
 @api_router.put("/receivals/{rec_id}")
@@ -368,14 +428,83 @@ async def update_receival(rec_id: str, data: ReceivalUpdate, current=Depends(get
     if not rec:
         raise HTTPException(status_code=404, detail="Not found")
     update = data.model_dump(exclude_unset=True)
+
+    if current.get("role") != "admin":
+        forbidden = set(update) - STAFF_EDITABLE
+        if forbidden:
+            raise HTTPException(status_code=403, detail="Staff may not edit: " + ", ".join(forbidden))
+
+    changes = {}
+    for k, v in update.items():
+        old = rec.get(k)
+        if k == "items":
+            if old != v:
+                changes[FIELD_LABELS.get(k, k)] = "updated items"
+        elif old != v:
+            changes[FIELD_LABELS.get(k, k)] = {"from": old, "to": v}
+
     if update:
-        await db.receivals.update_one({"id": rec_id}, {"$set": update})
+        ops = {"$set": update}
+        if changes:
+            ops["$push"] = {"changeLog": _log(current, "Edited record", changes)}
+        await db.receivals.update_one({"id": rec_id}, ops)
+    rec = await db.receivals.find_one({"id": rec_id}, {"_id": 0})
+    return await _enrich(rec)
+
+
+@api_router.post("/receivals/{rec_id}/media")
+async def update_media(rec_id: str, data: MediaUpdate, current=Depends(get_current_user)):
+    rec = await db.receivals.find_one({"id": rec_id})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    images = list(rec.get("images", []))
+    signatures = list(rec.get("signatures", []))
+    log_actions = []
+
+    added_imgs = 0
+    for b64 in data.addImages:
+        p = save_base64_image(b64, "photos")
+        if p:
+            images.append(p)
+            added_imgs += 1
+    if added_imgs:
+        log_actions.append(f"added {added_imgs} photo(s)")
+
+    if data.removeImagePaths:
+        before = len(images)
+        images = [p for p in images if p not in data.removeImagePaths]
+        removed = before - len(images)
+        if removed:
+            log_actions.append(f"removed {removed} photo(s)")
+
+    added_sigs = 0
+    for i, b64 in enumerate(data.addSignatures):
+        p = save_base64_image(b64, "signatures")
+        if p:
+            signer = data.addSignedByNames[i] if i < len(data.addSignedByNames) else "Unknown"
+            signatures.append({"signedBy": signer or "Unknown", "path": p})
+            added_sigs += 1
+    if added_sigs:
+        log_actions.append(f"added {added_sigs} signature(s)")
+
+    if data.removeSignaturePaths:
+        before = len(signatures)
+        signatures = [s for s in signatures if s.get("path") not in data.removeSignaturePaths]
+        removed = before - len(signatures)
+        if removed:
+            log_actions.append(f"removed {removed} signature(s)")
+
+    ops = {"$set": {"images": images, "signatures": signatures}}
+    if log_actions:
+        ops["$push"] = {"changeLog": _log(current, "Updated media: " + ", ".join(log_actions))}
+    await db.receivals.update_one({"id": rec_id}, ops)
     rec = await db.receivals.find_one({"id": rec_id}, {"_id": 0})
     return await _enrich(rec)
 
 
 @api_router.delete("/receivals/{rec_id}")
-async def delete_receival(rec_id: str, current=Depends(get_current_user)):
+async def delete_receival(rec_id: str, current=Depends(require_admin)):
     await db.receivals.delete_one({"id": rec_id})
     return {"ok": True}
 
@@ -388,14 +517,14 @@ def _cutoff_iso() -> str:
 
 
 @api_router.get("/archive/preview")
-async def archive_preview(current=Depends(get_current_user)):
+async def archive_preview(current=Depends(require_admin)):
     cutoff = _cutoff_iso()
     recs = await db.receivals.find({"createdAt": {"$lt": cutoff}}, {"_id": 0}).to_list(5000)
     return {"count": len(recs), "cutoff": cutoff, "records": [await _enrich(r) for r in recs]}
 
 
 @api_router.delete("/archive")
-async def archive_delete(current=Depends(get_current_user)):
+async def archive_delete(current=Depends(require_admin)):
     cutoff = _cutoff_iso()
     result = await db.receivals.delete_many({"createdAt": {"$lt": cutoff}})
     return {"deleted": result.deleted_count}

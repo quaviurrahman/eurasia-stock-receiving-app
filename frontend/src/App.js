@@ -22,6 +22,13 @@ const Protected = ({ children }) => {
   return children;
 };
 
+const AdminOnly = ({ children }) => {
+  const { user, isAdmin } = useAuth();
+  if (user === null) return null;
+  if (!isAdmin) return <Navigate to="/" replace />;
+  return children;
+};
+
 function App() {
   return (
     <div className="App">
@@ -39,7 +46,14 @@ function App() {
               <Route index element={<ReceivalListPage />} />
               <Route path="new" element={<NewReceivalPage />} />
               <Route path="receival/:id" element={<ReceivalDetailsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
+              <Route
+                path="settings"
+                element={
+                  <AdminOnly>
+                    <SettingsPage />
+                  </AdminOnly>
+                }
+              />
             </Route>
           </Routes>
         </BrowserRouter>

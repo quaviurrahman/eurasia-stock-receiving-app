@@ -16,8 +16,9 @@ import {
 import SupplierCombobox from "@/components/SupplierCombobox";
 import CameraCapture from "@/components/CameraCapture";
 import SignaturePad from "@/components/SignaturePad";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, CheckCircle2, PenLine, X } from "lucide-react";
+import { Loader2, Plus, Trash2, CheckCircle2, PenLine, X, UserRound } from "lucide-react";
 
 const Section = ({ n, title, children }) => (
   <Card className="rounded-sm border-border p-5">
@@ -33,6 +34,7 @@ const Section = ({ n, title, children }) => (
 
 const NewReceivalPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const sigRef = useRef(null);
   const [suppliers, setSuppliers] = useState([]);
   const [statuses, setStatuses] = useState([]);
@@ -45,7 +47,6 @@ const NewReceivalPage = () => {
     observation: "",
     dispute: "false",
     palletCount: 0,
-    pin: "",
     signedBy: "",
   });
   const [items, setItems] = useState([]);
@@ -79,8 +80,6 @@ const NewReceivalPage = () => {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.pin) return toast.error("Enter your PIN to confirm");
-
     setSaving(true);
     // include an un-added, currently-drawn signature too
     const drawn = sigRef.current?.toDataURL();
@@ -94,7 +93,6 @@ const NewReceivalPage = () => {
       observation: form.observation,
       dispute: form.dispute === "true",
       palletCount: parseInt(form.palletCount) || 0,
-      pin: form.pin,
       items: items
         .filter((it) => it.description)
         .map((it) => ({
@@ -317,20 +315,16 @@ const NewReceivalPage = () => {
           )}
         </Section>
 
-        <Section n="5" title="Confirm with PIN">
-          <Label>Your staff PIN *</Label>
-          <Input
-            type="password"
-            inputMode="numeric"
-            value={form.pin}
-            onChange={(e) => set("pin", e.target.value)}
-            placeholder="••••"
-            className="mt-1 h-12 rounded-sm tnum max-w-[200px]"
-            data-testid="pin-input"
-            required
-          />
+        <Section n="5" title="Received by">
+          <div className="flex items-center gap-3 border border-border rounded-sm px-4 h-12" data-testid="received-by">
+            <UserRound size={18} className="text-muted-foreground" />
+            <span className="text-sm font-medium">{user?.name}</span>
+            <span className="text-[10px] uppercase tracking-wide bg-secondary px-1.5 py-0.5 rounded-sm">
+              {user?.role}
+            </span>
+          </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Your PIN records who received this delivery.
+            This receival will be recorded under your name.
           </p>
         </Section>
 

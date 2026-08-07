@@ -33,14 +33,24 @@ export const AuthProvider = ({ children }) => {
     return data.user;
   };
 
+  const staffLogin = async (pin) => {
+    const { data } = await api.post("/auth/staff-login", { pin });
+    localStorage.setItem("eurasia_token", data.access_token);
+    setToken(data.access_token);
+    setUser(data.user);
+    return data.user;
+  };
+
   const logout = () => {
     localStorage.removeItem("eurasia_token");
     setToken(null);
     setUser(false);
   };
 
+  const isAdmin = user && user !== false && user.role === "admin";
+
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, login, staffLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );
