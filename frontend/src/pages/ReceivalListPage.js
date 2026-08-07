@@ -31,7 +31,7 @@ import {
   Plus,
   Eye,
   Trash2,
-  AlertTriangle,
+  FileText,
   Camera,
   Package,
   Pencil,
@@ -77,12 +77,12 @@ const BoolFilter = ({ value, onChange, label, testid }) => (
 
 const DEFAULT_FILTERS = {
   supplier: "",
+  status: "",
   dateFrom: "",
   dateTo: "",
   recorded: "all",
   invoice: "all",
   price: "all",
-  dispute: "all",
 };
 
 const STORAGE_KEY = "eurasia_receival_filters";
@@ -182,7 +182,7 @@ const ReceivalListPage = () => {
         statusId: edit.statusId || null,
         deliveryDate: edit.deliveryDate || null,
         observation: edit.observation || "",
-        dispute: !!edit.dispute,
+        invoiceNumber: edit.invoiceNumber || "",
         palletCount: parseInt(edit.palletCount) || 0,
         recordedInSystem: !!edit.recordedInSystem,
         invoiceReceived: !!edit.invoiceReceived,
@@ -202,9 +202,10 @@ const ReceivalListPage = () => {
   const activeFilterCount = useMemo(() => {
     let c = 0;
     if (filters.supplier) c++;
+    if (filters.status) c++;
     if (filters.dateFrom) c++;
     if (filters.dateTo) c++;
-    ["recorded", "invoice", "price", "dispute"].forEach((k) => filters[k] !== "all" && c++);
+    ["recorded", "invoice", "price"].forEach((k) => filters[k] !== "all" && c++);
     return c;
   }, [filters]);
 
@@ -214,38 +215,23 @@ const ReceivalListPage = () => {
       filt === "all" ? true : filt === "true" ? !!val : !val;
     return rows.filter((r) => {
       if (filters.supplier && r.supplierId !== filters.supplier) return false;
+      if (filters.status && r.statusId !== filters.status) return false;
       const day = (r.createdAt || "").slice(0, 10);
       if (filters.dateFrom && day < filters.dateFrom) return false;
       if (filters.dateTo && day > filters.dateTo) return false;
       if (!matchBool(r.recordedInSystem, filters.recorded)) return false;
       if (!matchBool(r.invoiceReceived, filters.invoice)) return false;
       if (!matchBool(r.priceChecked, filters.price)) return false;
-      if (!matchBool(r.dispute, filters.dispute)) return false;
       if (!term) return true;
       return (
         r.supplier?.name?.toLowerCase().includes(term) ||
         r.receivedBy?.toLowerCase().includes(term) ||
-        r.observation?.toLowerCase().includes(term)
+        r.observation?.toLowerCase().includes(term) ||
+        (r.invoiceNumber || "").toLowerCase().includes(term)
       );
     });
   }, [rows, search, filters]);
 
-  const editDispute = (val) => (
-    <button
-      type="button"
-      onClick={() => setEdit((e) => ({ ...e, dispute: val }))}
-      className={`flex-1 h-11 rounded-sm border text-sm font-semibold transition-colors ${
-        !!edit.dispute === val
-          ? val
-            ? "bg-destructive text-destructive-foreground border-destructive"
-            : "bg-primary text-primary-foreground border-primary"
-          : "bg-background border-border hover:bg-secondary"
-      }`}
-      data-testid={`edit-dispute-${val}`}
-    >
-      {val ? "Dispute" : "No dispute"}
-    </button>
-  );
 
   return (
     <div>
@@ -329,7 +315,22 @@ const ReceivalListPage = () => {
                 data-testid="filter-date-to"
               />
             </div>
-            <BoolFilter value={filters.dispute} onChange={(v) => setFilter("dispute", v)} label="Dispute" testid="filter-dispute" />
+            <div>
+              <Label className="text-xs text-muted-foreground">Status</Label>
+              <Select value={filters.status || "all"} onValueChange={(v) => setFilter("status", v === "all" ? "" : v)}>
+                <SelectTrigger className="h-11 rounded-sm mt-1" data-testid="filter-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {statuses.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <BoolFilter value={filters.recorded} onChange={(v) => setFilter("recorded", v)} label="Recorded" testid="filter-recorded" />
             <BoolFilter value={filters.invoice} onChange={(v) => setFilter("invoice", v)} label="Invoice received" testid="filter-invoice" />
             <BoolFilter value={filters.price} onChange={(v) => setFilter("price", v)} label="Price checked" testid="filter-price" />
@@ -376,14 +377,14 @@ const ReceivalListPage = () => {
                         year: "numeric",
                       })}
                     </Badge>
-                    {r.dispute && (
-                      <Badge className="rounded-sm bg-destructive text-destructive-foreground">
-                        <AlertTriangle size={12} className="mr-1" /> Dispute
-                      </Badge>
-                    )}
                     {r.status?.name && (
                       <Badge variant="secondary" className="rounded-sm">
                         {r.status.name}
+                      </Badge>
+                    )}
+                    {r.invoiceNumber && (
+                      <Badge variant="outline" className="rounded-sm border-accent text-accent" data-testid={`invoice-number-${r.id}`}>
+                        <FileText size={12} className="mr-1" /> Inv #{r.invoiceNumber}
                       </Badge>
                     )}
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -518,11 +519,14 @@ const ReceivalListPage = () => {
                 />
               </div>
               <div>
-                <Label>Dispute?</Label>
-                <div className="flex gap-2 mt-1">
-                  {editDispute(false)}
-                  {editDispute(true)}
-                </div>
+                <Label>Invoice number</Label>
+                <Input
+                  value={edit.invoiceNumber || ""}
+                  onChange={(e) => setEdit((v) => ({ ...v, invoiceNumber: e.target.value }))}
+                  placeholder="e.g. INV-10234"
+                  className="h-11 rounded-sm mt-1"
+                  data-testid="edit-invoice-number"
+                />
               </div>
               <div>
                 <Label>Observations</Label>

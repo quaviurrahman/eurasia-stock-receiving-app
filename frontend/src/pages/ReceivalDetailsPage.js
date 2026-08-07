@@ -22,7 +22,6 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Printer,
-  AlertTriangle,
   Pencil,
   Save,
   X,
@@ -188,9 +187,9 @@ const ReceivalDetailsPage = () => {
       <div id="print-area" className="space-y-4">
         <div className="flex items-center justify-between">
           <h1 className="font-head font-black text-3xl tracking-tight">Delivery Note</h1>
-          {rec.dispute && (
-            <Badge className="rounded-sm bg-destructive text-destructive-foreground">
-              <AlertTriangle size={12} className="mr-1" /> Dispute
+          {rec.invoiceNumber && (
+            <Badge variant="outline" className="rounded-sm border-accent text-accent">
+              Invoice #{rec.invoiceNumber}
             </Badge>
           )}
         </div>
@@ -216,7 +215,7 @@ const ReceivalDetailsPage = () => {
             ) : (
               <Field label="Pallets" value={rec.palletCount} />
             )}
-            <Field label="Dispute" value={rec.dispute ? "Yes" : "No"} />
+            <Field label="Invoice number" value={rec.invoiceNumber} />
           </div>
           <div className="mt-4">
             {editing ? (

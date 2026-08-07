@@ -46,7 +46,6 @@ const NewReceivalPage = () => {
     statusId: "",
     deliveryDate: new Date().toISOString().slice(0, 10),
     observation: "",
-    dispute: "false",
     palletCount: 0,
     signedBy: "",
   });
@@ -93,7 +92,6 @@ const NewReceivalPage = () => {
       statusId: form.statusId || null,
       deliveryDate: form.deliveryDate || null,
       observation: form.observation,
-      dispute: form.dispute === "true",
       palletCount: parseInt(form.palletCount) || 0,
       items: items
         .filter((it) => it.description)
@@ -122,23 +120,6 @@ const NewReceivalPage = () => {
       setSaving(false);
     }
   };
-
-  const disputeBtn = (val, label) => (
-    <button
-      type="button"
-      onClick={() => set("dispute", val)}
-      data-testid={`dispute-${val}`}
-      className={`flex-1 h-12 rounded-sm border text-sm font-semibold transition-colors ${
-        form.dispute === val
-          ? val === "true"
-            ? "bg-destructive text-destructive-foreground border-destructive"
-            : "bg-primary text-primary-foreground border-primary"
-          : "bg-background border-border hover:bg-secondary"
-      }`}
-    >
-      {label}
-    </button>
-  );
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -199,14 +180,6 @@ const NewReceivalPage = () => {
                 className="mt-1 h-12 rounded-sm tnum"
                 data-testid="pallet-count"
               />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <Label>Dispute?</Label>
-            <div className="flex gap-2 mt-1">
-              {disputeBtn("false", "No dispute")}
-              {disputeBtn("true", "Dispute")}
             </div>
           </div>
 

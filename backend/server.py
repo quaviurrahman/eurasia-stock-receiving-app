@@ -215,7 +215,6 @@ class ReceivalCreate(BaseModel):
     statusId: Optional[str] = None
     deliveryDate: Optional[str] = None
     observation: str = ""
-    dispute: bool = False
     palletCount: Optional[int] = 0
     pin: Optional[str] = None
     items: List[ReceivalItem] = []
@@ -230,8 +229,8 @@ class ReceivalUpdate(BaseModel):
     statusId: Optional[str] = None
     deliveryDate: Optional[str] = None
     observation: Optional[str] = None
-    dispute: Optional[bool] = None
     palletCount: Optional[int] = None
+    invoiceNumber: Optional[str] = None
     recordedInSystem: Optional[bool] = None
     invoiceReceived: Optional[bool] = None
     priceChecked: Optional[bool] = None
@@ -403,9 +402,9 @@ async def create_receival(data: ReceivalCreate, current=Depends(get_current_user
         "statusId": data.statusId,
         "deliveryDate": data.deliveryDate,
         "observation": data.observation,
-        "dispute": data.dispute,
         "palletCount": data.palletCount or 0,
         "receivedBy": current.get("name"),
+        "invoiceNumber": None,
         "recordedInSystem": False,
         "invoiceReceived": False,
         "priceChecked": False,
@@ -431,7 +430,7 @@ FIELD_LABELS = {
     "supplierId": "supplier",
     "statusId": "status",
     "deliveryDate": "delivery date",
-    "dispute": "dispute",
+    "invoiceNumber": "invoice number",
     "recordedInSystem": "recorded",
     "invoiceReceived": "invoice received",
     "priceChecked": "price checked",
