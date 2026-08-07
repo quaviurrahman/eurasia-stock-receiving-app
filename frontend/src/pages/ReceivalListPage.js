@@ -20,6 +20,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import SupplierCombobox from "@/components/SupplierCombobox";
@@ -427,6 +428,7 @@ const ReceivalListPage = () => {
         <DialogContent className="rounded-sm max-w-lg max-h-[90vh] overflow-y-auto" data-testid="edit-dialog">
           <DialogHeader>
             <DialogTitle className="font-head">Edit receival</DialogTitle>
+            <DialogDescription>Update any field on this receival record.</DialogDescription>
           </DialogHeader>
           {edit && (
             <div className="space-y-4">
