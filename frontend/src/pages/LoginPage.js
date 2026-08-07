@@ -61,7 +61,7 @@ const LoginPage = () => {
             <div className="w-10 h-10 bg-primary-foreground text-primary flex items-center justify-center rounded-sm">
               <Boxes size={22} />
             </div>
-            <span className="font-head font-black text-2xl tracking-tight">EURASIA</span>
+            <span className="font-head font-black text-2xl tracking-tight">EurasiaStockIntake</span>
           </div>
           <div>
             <h1 className="font-head font-black text-5xl leading-[0.95] tracking-tight">
@@ -80,7 +80,7 @@ const LoginPage = () => {
             <div className="w-9 h-9 bg-primary text-primary-foreground flex items-center justify-center rounded-sm">
               <Boxes size={20} />
             </div>
-            <span className="font-head font-black text-xl tracking-tight">EURASIA</span>
+            <span className="font-head font-black text-lg tracking-tight">EurasiaStockIntake</span>
           </div>
 
           <Tabs defaultValue="staff">

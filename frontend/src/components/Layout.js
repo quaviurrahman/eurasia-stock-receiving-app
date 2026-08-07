@@ -38,7 +38,7 @@ const Layout = () => {
               <Boxes size={20} />
             </div>
             <div className="text-left leading-none">
-              <div className="font-head font-black text-lg tracking-tight">EURASIA</div>
+              <div className="font-head font-black text-base sm:text-lg tracking-tight">EurasiaStockIntake</div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Goods Receival
               </div>
