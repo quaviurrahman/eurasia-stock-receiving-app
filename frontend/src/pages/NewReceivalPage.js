@@ -13,10 +13,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import SupplierCombobox from "@/components/SupplierCombobox";
 import CameraCapture from "@/components/CameraCapture";
 import SignaturePad from "@/components/SignaturePad";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, CheckCircle2 } from "lucide-react";
+import { Loader2, Plus, Trash2, CheckCircle2, PenLine, X } from "lucide-react";
 
 const Section = ({ n, title, children }) => (
   <Card className="rounded-sm border-border p-5">
@@ -49,6 +50,7 @@ const NewReceivalPage = () => {
   });
   const [items, setItems] = useState([]);
   const [images, setImages] = useState([]);
+  const [signatures, setSignatures] = useState([]); // [{data, signedBy}]
 
   useEffect(() => {
     (async () => {
@@ -65,15 +67,28 @@ const NewReceivalPage = () => {
     setItems((i) => i.map((it, j) => (j === idx ? { ...it, [k]: v } : it)));
   const removeItem = (idx) => setItems((i) => i.filter((_, j) => j !== idx));
 
+  const addSignature = () => {
+    const data = sigRef.current?.toDataURL();
+    if (!data) return toast.error("Draw a signature first");
+    setSignatures((s) => [...s, { data, signedBy: form.signedBy || "Unknown" }]);
+    sigRef.current?.clear();
+    set("signedBy", "");
+    toast.success("Signature added");
+  };
+  const removeSignature = (idx) => setSignatures((s) => s.filter((_, i) => i !== idx));
+
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.supplierId) return toast.error("Please select a supplier");
     if (!form.pin) return toast.error("Enter your PIN to confirm");
 
     setSaving(true);
-    const sig = sigRef.current?.toDataURL();
+    // include an un-added, currently-drawn signature too
+    const drawn = sigRef.current?.toDataURL();
+    const allSigs = [...signatures];
+    if (drawn) allSigs.push({ data: drawn, signedBy: form.signedBy || "Unknown" });
+
     const payload = {
-      supplierId: form.supplierId,
+      supplierId: form.supplierId || null,
       statusId: form.statusId || null,
       deliveryDate: form.deliveryDate || null,
       observation: form.observation,
@@ -89,8 +104,8 @@ const NewReceivalPage = () => {
           qop: it.qop ? Number(it.qop) : null,
         })),
       base64Images: images,
-      base64Signatures: sig ? [sig] : [],
-      signedByNames: sig ? [form.signedBy || "Unknown"] : [],
+      base64Signatures: allSigs.map((s) => s.data),
+      signedByNames: allSigs.map((s) => s.signedBy),
     };
 
     try {
@@ -134,19 +149,16 @@ const NewReceivalPage = () => {
         <Section n="1" title="Delivery details">
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <Label>Supplier *</Label>
-              <Select value={form.supplierId} onValueChange={(v) => set("supplierId", v)}>
-                <SelectTrigger className="mt-1 h-12 rounded-sm" data-testid="supplier-select">
-                  <SelectValue placeholder="Select supplier" />
-                </SelectTrigger>
-                <SelectContent>
-                  {suppliers.map((s) => (
-                    <SelectItem key={s.id} value={s.id} data-testid={`supplier-opt-${s.id}`}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Supplier (optional)</Label>
+              <SupplierCombobox
+                suppliers={suppliers}
+                value={form.supplierId}
+                onChange={(v) => set("supplierId", v)}
+                placeholder="Search supplier…"
+                allowClear
+                testid="supplier-combobox"
+                className="mt-1"
+              />
             </div>
             <div>
               <Label>Status</Label>
@@ -253,7 +265,7 @@ const NewReceivalPage = () => {
           </Button>
         </Section>
 
-        <Section n="3" title="Photos">
+        <Section n="3" title="Photos (add multiple)">
           <CameraCapture
             images={images}
             onCapture={(b64) => setImages((p) => [...p, b64])}
@@ -261,18 +273,48 @@ const NewReceivalPage = () => {
           />
         </Section>
 
-        <Section n="4" title="Signature">
+        <Section n="4" title="Signatures (add multiple)">
           <SignaturePad ref={sigRef} />
-          <div className="mt-3">
-            <Label>Signed by</Label>
-            <Input
-              value={form.signedBy}
-              onChange={(e) => set("signedBy", e.target.value)}
-              placeholder="Name of person signing"
-              className="mt-1 h-12 rounded-sm"
-              data-testid="signed-by"
-            />
+          <div className="mt-3 grid sm:grid-cols-[1fr_auto] gap-2 items-end">
+            <div>
+              <Label>Signed by</Label>
+              <Input
+                value={form.signedBy}
+                onChange={(e) => set("signedBy", e.target.value)}
+                placeholder="Name of person signing"
+                className="mt-1 h-12 rounded-sm"
+                data-testid="signed-by"
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addSignature}
+              className="h-12 rounded-sm"
+              data-testid="add-signature-btn"
+            >
+              <PenLine size={16} className="mr-2" /> Add signature
+            </Button>
           </div>
+
+          {signatures.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3" data-testid="signature-list">
+              {signatures.map((s, idx) => (
+                <div key={idx} className="relative border border-border rounded-sm p-2">
+                  <img src={s.data} alt={`sig-${idx}`} className="w-full h-16 object-contain bg-white" />
+                  <p className="text-xs text-center mt-1 font-medium truncate">{s.signedBy}</p>
+                  <button
+                    type="button"
+                    onClick={() => removeSignature(idx)}
+                    className="absolute top-1 right-1 w-5 h-5 bg-destructive text-destructive-foreground rounded-sm flex items-center justify-center"
+                    data-testid={`remove-signature-${idx}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
 
         <Section n="5" title="Confirm with PIN">

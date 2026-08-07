@@ -189,9 +189,13 @@ class ReceivalUpdate(BaseModel):
     supplierId: Optional[str] = None
     statusId: Optional[str] = None
     deliveryDate: Optional[str] = None
+    observation: Optional[str] = None
+    dispute: Optional[bool] = None
+    palletCount: Optional[int] = None
     recordedInSystem: Optional[bool] = None
     invoiceReceived: Optional[bool] = None
     priceChecked: Optional[bool] = None
+    items: Optional[List[ReceivalItem]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +367,7 @@ async def update_receival(rec_id: str, data: ReceivalUpdate, current=Depends(get
     rec = await db.receivals.find_one({"id": rec_id})
     if not rec:
         raise HTTPException(status_code=404, detail="Not found")
-    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update = data.model_dump(exclude_unset=True)
     if update:
         await db.receivals.update_one({"id": rec_id}, {"$set": update})
     rec = await db.receivals.find_one({"id": rec_id}, {"_id": 0})

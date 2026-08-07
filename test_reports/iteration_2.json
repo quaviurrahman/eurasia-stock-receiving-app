@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 2 — verified the four new features. Backend: added 3 new pytest cases and all 19 tests pass (POST /api/receivals with no supplier, POST with multiple photos + multiple signatures, PUT /api/receivals/{id} accepts and persists supplierId, statusId, deliveryDate, observation, dispute, palletCount, recordedInSystem, invoiceReceived, priceChecked, items). Frontend E2E: (a) Filters panel opens; Dispute/Recorded/Invoice/Price bool filters, date-from/to, supplier searchable combobox, and Reset all work and change row counts as expected. (b) Edit dialog opens on Edit-<id>, changes supplier via searchable combobox, status, pallets, delivery date, dispute toggle, observation, and all three checklist toggles — Save updates the row and the changes persist after page reload. (c) New Receival works with NO supplier selected (submits successfully with PIN 1234). (d) Supplier combobox on /new is searchable (typing 'Fresh' narrows to Fresh Foods Ltd, selection shows in trigger). (e) Multiple photos via camera-file-input (2 uploaded, 1 removed leaving 1). (f) Multiple signatures: drew and added 2 signatures for two names via add-signature-btn, remove-signature-0 works.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Edit dialog", "issues": ["Radix warning: DialogContent is missing `aria-describedby` — cosmetic a11y warning, not blocking. Add DialogDescription for accessibility."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Add DialogDescription (or aria-describedby) to edit-dialog to silence Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "ReceivalListPage saveEdit sends exclude_unset semantics from the client by always including all fields; that's fine. However statusId is set to null when empty which still writes null to DB — OK because backend model_dump(exclude_unset=True) means whatever is in payload will be applied. Consider omitting keys the admin didn't touch to prevent accidental blanking of statusId when the admin didn't intend to change it.",
+    "SupplierCombobox uses `value={s.name}` in cmdk which means filtering is by name only — good; but if two suppliers share a name they'd collide in the filter. Consider `value={`${s.name} ${s.id}`}` and rendering just the name.",
+    "NewReceivalPage.submit() concatenates any un-added drawn signature via sigRef.current.toDataURL(); SignaturePad likely returns a non-null data URL even for an untouched canvas, meaning an empty-white signature can be submitted unintentionally when the user has already clicked 'Add signature' and left the pad blank. Consider tracking whether the pad has been drawn on since last clear before appending.",
+    "Backend PUT ReceivalUpdate does not accept `signatures` / `images` / `receivedBy`; if admin needs to fully edit those, add fields (out of scope for this iteration but flagging).",
+    "server.py still uses deprecated @app.on_event('startup'/'shutdown') and CORS allow_credentials=True with allow_origins='*' default — carried over from iteration 1, not re-fixed."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (19/19)", "frontend": "100% on new features (filters, edit dialog, optional supplier, searchable combobox, multi-photo, multi-signature)"},
+  "test_credentials": "admin@eurasia.com / admin123; Staff PIN 1234",
+  "seed_data_creation": "Created transient TEST_ receivals via pytest (auto-cleaned up). E2E created 2 receivals which remain in DB (one 'no supplier / 0 pallets' from optional-supplier test, one edited to Global Produce Co with observation 'TEST_edited_via_dialog'). Safe to leave or delete via UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend suite at /app/backend/tests/backend_test.py now covers PUT with all fields, optional supplier on POST, and multi-signature creation. When testing SupplierCombobox in Playwright: click the trigger ([data-testid=<name>]), then fill [data-testid=<name>-input] and click [data-testid=<name>-opt-<supplierId>] with force=True. Signature canvas drawing via mouse events is flaky on the 2nd render in headless — draw with wider strokes and add small waits.",
+  "rca of the issue": "N/A — all new features work as specified."
+}

@@ -188,3 +188,85 @@ def test_archive_preview(auth_headers):
 def test_receivals_requires_auth():
     r = requests.get(f"{BASE_URL}/api/receivals", timeout=30)
     assert r.status_code == 401
+
+
+# ---- Iteration 2: new feature tests ----
+def test_create_receival_without_supplier(auth_headers):
+    """Supplier is optional on POST /api/receivals."""
+    payload = {
+        "pin": STAFF_PIN,
+        "observation": "TEST_no_supplier",
+        "palletCount": 1,
+        "items": [],
+        "base64Images": [],
+        "base64Signatures": [],
+        "signedByNames": [],
+    }
+    r = requests.post(f"{BASE_URL}/api/receivals", json=payload, timeout=30)
+    assert r.status_code == 200, r.text
+    rec = r.json()
+    assert rec["supplierId"] is None
+    assert rec.get("supplier") is None
+    # cleanup
+    requests.delete(f"{BASE_URL}/api/receivals/{rec['id']}", headers=auth_headers, timeout=30)
+
+
+def test_create_receival_multiple_signatures(auth_headers):
+    payload = {
+        "pin": STAFF_PIN,
+        "observation": "TEST_multi_sig",
+        "items": [],
+        "base64Images": [TINY_PNG_B64, TINY_PNG_B64],
+        "base64Signatures": [TINY_PNG_B64, TINY_PNG_B64],
+        "signedByNames": ["Signer One", "Signer Two"],
+    }
+    r = requests.post(f"{BASE_URL}/api/receivals", json=payload, timeout=60)
+    assert r.status_code == 200, r.text
+    rec = r.json()
+    assert len(rec["images"]) == 2
+    assert len(rec["signatures"]) == 2
+    assert rec["signatures"][0]["signedBy"] == "Signer One"
+    assert rec["signatures"][1]["signedBy"] == "Signer Two"
+    # verify persistence
+    g = requests.get(f"{BASE_URL}/api/receivals/{rec['id']}", headers=auth_headers, timeout=30)
+    assert g.status_code == 200
+    assert len(g.json()["signatures"]) == 2
+    requests.delete(f"{BASE_URL}/api/receivals/{rec['id']}", headers=auth_headers, timeout=30)
+
+
+def test_update_receival_all_fields(auth_headers, created_receival):
+    """PUT /api/receivals/{id} must accept all new fields."""
+    suppliers = requests.get(f"{BASE_URL}/api/suppliers", timeout=30).json()
+    statuses = requests.get(f"{BASE_URL}/api/statuses", timeout=30).json()
+    payload = {
+        "supplierId": suppliers[-1]["id"],
+        "statusId": statuses[-1]["id"],
+        "deliveryDate": "2026-01-15",
+        "observation": "TEST_updated_obs",
+        "dispute": True,
+        "palletCount": 9,
+        "recordedInSystem": True,
+        "invoiceReceived": True,
+        "priceChecked": True,
+        "items": [{"description": "TEST_updated_item", "qty": 7}],
+    }
+    r = requests.put(f"{BASE_URL}/api/receivals/{created_receival['id']}", json=payload,
+                     headers=auth_headers, timeout=30)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    for k, v in payload.items():
+        if k == "items":
+            assert body["items"][0]["description"] == "TEST_updated_item"
+            assert body["items"][0]["qty"] == 7
+        else:
+            assert body[k] == v, f"Field {k} not updated: got {body.get(k)}"
+    # verify persistence via GET
+    g = requests.get(f"{BASE_URL}/api/receivals/{created_receival['id']}", headers=auth_headers, timeout=30)
+    gb = g.json()
+    assert gb["dispute"] is True
+    assert gb["recordedInSystem"] is True
+    assert gb["invoiceReceived"] is True
+    assert gb["priceChecked"] is True
+    assert gb["palletCount"] == 9
+    assert gb["deliveryDate"] == "2026-01-15"
+    assert gb["observation"] == "TEST_updated_obs"
