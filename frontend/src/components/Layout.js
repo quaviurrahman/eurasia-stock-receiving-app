@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { ClipboardList, PlusSquare, Settings, LogOut, Boxes, UserRound, LayoutDashboard } from "lucide-react";
+import { ClipboardList, PlusSquare, Settings, LogOut, UserRound, LayoutDashboard } from "lucide-react";
 
 const NavBtn = ({ active, onClick, icon: Icon, label, testid }) => (
   <button
@@ -37,9 +37,7 @@ const Layout = () => {
       <header className="sticky top-0 z-40 bg-background border-b border-border">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <button onClick={() => navigate("/")} data-testid="brand-home" className="flex items-center gap-2">
-            <div className="w-9 h-9 bg-primary text-primary-foreground flex items-center justify-center rounded-sm">
-              <Boxes size={20} />
-            </div>
+            <img src="/logo.jpg" alt="EurasiaStockIntake" className="w-10 h-10 rounded-full object-cover border border-border" />
             <div className="text-left leading-none">
               <div className="font-head font-black text-base sm:text-lg tracking-tight">EurasiaStockIntake</div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">

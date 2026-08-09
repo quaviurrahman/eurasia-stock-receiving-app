@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Boxes, Loader2, ShieldCheck, KeyRound } from "lucide-react";
+import { Loader2, ShieldCheck, KeyRound } from "lucide-react";
 
 const BG =
   "https://images.unsplash.com/photo-1740914994657-f1cdffdc418e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjd8MHwxfHNlYXJjaHwyfHxsb2dpc3RpY3MlMjB3YXJlaG91c2UlMjBtb2Rlcm58ZW58MHx8fHwxNzg2MTE1MzUyfDA&ixlib=rb-4.1.0&q=85";
@@ -58,9 +58,7 @@ const LoginPage = () => {
         <div className="absolute inset-0 bg-primary/40" />
         <div className="relative z-10 p-12 h-full flex flex-col justify-between text-primary-foreground">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-primary-foreground text-primary flex items-center justify-center rounded-sm">
-              <Boxes size={22} />
-            </div>
+            <img src="/logo.jpg" alt="EurasiaStockIntake" className="w-11 h-11 rounded-full object-cover" />
             <span className="font-head font-black text-2xl tracking-tight">EurasiaStockIntake</span>
           </div>
           <div>
@@ -77,9 +75,7 @@ const LoginPage = () => {
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="md:hidden flex items-center gap-2 mb-8">
-            <div className="w-9 h-9 bg-primary text-primary-foreground flex items-center justify-center rounded-sm">
-              <Boxes size={20} />
-            </div>
+            <img src="/logo.jpg" alt="EurasiaStockIntake" className="w-9 h-9 rounded-full object-cover" />
             <span className="font-head font-black text-lg tracking-tight">EurasiaStockIntake</span>
           </div>
 
