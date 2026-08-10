@@ -23,6 +23,14 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import SupplierCombobox from "@/components/SupplierCombobox";
 import { fmt } from "@/components/Slips";
 import { useAuth } from "@/context/AuthContext";
@@ -37,6 +45,8 @@ import {
   Package,
   Pencil,
   Calculator,
+  LayoutGrid,
+  Table as TableIcon,
   SlidersHorizontal,
   X,
 } from "lucide-react";
@@ -107,13 +117,14 @@ const ReceivalListPage = () => {
   const [search, setSearch] = useState(stored.search || "");
   const [showFilters, setShowFilters] = useState(stored.showFilters || false);
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, ...(stored.filters || {}) });
+  const [viewMode, setViewMode] = useState(stored.viewMode || "tiles");
   const [edit, setEdit] = useState(null); // record being edited
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Persist search + filters so they survive reload and back-navigation.
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ search, showFilters, filters }));
-  }, [search, showFilters, filters]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ search, showFilters, filters, viewMode }));
+  }, [search, showFilters, filters, viewMode]);
 
   const load = async () => {
     try {
@@ -280,6 +291,32 @@ const ReceivalListPage = () => {
             </Badge>
           )}
         </Button>
+        <div className="flex rounded-sm border border-border overflow-hidden h-12" data-testid="view-toggle">
+          <button
+            type="button"
+            onClick={() => setViewMode("tiles")}
+            title="Tiles view"
+            className={`px-3 flex items-center gap-2 text-sm font-medium transition-colors ${
+              viewMode === "tiles" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"
+            }`}
+            data-testid="view-tiles"
+          >
+            <LayoutGrid size={18} />
+            <span className="hidden sm:inline">Tiles</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            title="Table view"
+            className={`px-3 flex items-center gap-2 text-sm font-medium border-l border-border transition-colors ${
+              viewMode === "table" ? "bg-primary text-primary-foreground" : "hover:bg-secondary"
+            }`}
+            data-testid="view-table"
+          >
+            <TableIcon size={18} />
+            <span className="hidden sm:inline">Table</span>
+          </button>
+        </div>
       </div>
 
       {showFilters && (
@@ -364,6 +401,93 @@ const ReceivalListPage = () => {
           >
             <Plus size={16} className="mr-2" /> New receival
           </Button>
+        </Card>
+      ) : viewMode === "table" ? (
+        <Card className="rounded-sm border-border overflow-x-auto" data-testid="receival-table">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Supplier</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Received by</TableHead>
+                <TableHead>Invoice #</TableHead>
+                <TableHead className="text-right">Slips</TableHead>
+                <TableHead className="text-right">Photos</TableHead>
+                <TableHead className="text-right">Pallets</TableHead>
+                <TableHead>Checklist</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((r) => {
+                const entries = (r.slips || []).flatMap((s) => s.entries || []);
+                const slipSum = entries.reduce((a, b) => a + (Number(b) || 0), 0);
+                return (
+                  <TableRow key={r.id} data-testid={`receival-trow-${r.id}`}>
+                    <TableCell className="whitespace-nowrap tnum">
+                      {new Date(r.createdAt).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
+                    </TableCell>
+                    <TableCell className="min-w-[180px]">
+                      {isAdmin ? (
+                        <SupplierCombobox
+                          suppliers={suppliers}
+                          value={r.supplierId || ""}
+                          onChange={(v) => reassignSupplier(r.id, v)}
+                          placeholder="Assign"
+                          allowClear
+                          testid={`supplier-dropdown-${r.id}`}
+                          className="!h-9"
+                        />
+                      ) : (
+                        <span className="text-sm font-medium" data-testid={`supplier-name-${r.id}`}>{r.supplier?.name || "—"}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>{r.status?.name ? <Badge variant="secondary" className="rounded-sm">{r.status.name}</Badge> : "—"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{r.receivedBy}</TableCell>
+                    <TableCell data-testid={`invoice-number-${r.id}`}>{r.invoiceNumber || "—"}</TableCell>
+                    <TableCell className="text-right tnum whitespace-nowrap" data-testid={`slip-total-${r.id}`}>
+                      {r.slips?.length ? `${r.slips.length} · Σ${fmt(slipSum)}` : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tnum">{r.images?.length || 0}</TableCell>
+                    <TableCell className="text-right tnum">{r.palletCount}</TableCell>
+                    <TableCell>
+                      {isAdmin ? (
+                        <div className="flex items-center gap-2">
+                          <Switch checked={!!r.recordedInSystem} onCheckedChange={(v) => toggle(r.id, "recordedInSystem", v)} title="Recorded" data-testid={`toggle-recorded-${r.id}`} />
+                          <Switch checked={!!r.invoiceReceived} onCheckedChange={(v) => toggle(r.id, "invoiceReceived", v)} title="Invoice received" data-testid={`toggle-invoice-${r.id}`} />
+                          <Switch checked={!!r.priceChecked} onCheckedChange={(v) => toggle(r.id, "priceChecked", v)} title="Price checked" data-testid={`toggle-price-${r.id}`} />
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {r.recordedInSystem && <Badge variant="secondary" className="rounded-sm text-[10px]">R</Badge>}
+                          {r.invoiceReceived && <Badge variant="secondary" className="rounded-sm text-[10px]">I</Badge>}
+                          {r.priceChecked && <Badge variant="secondary" className="rounded-sm text-[10px]">P</Badge>}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1 justify-end">
+                        {isAdmin && (
+                          <button onClick={() => setEdit({ ...r })} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-secondary" title="Edit" data-testid={`edit-${r.id}`}>
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                        <button onClick={() => navigate(`/receival/${r.id}`)} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-secondary" title="View" data-testid={`view-${r.id}`}>
+                          <Eye size={15} />
+                        </button>
+                        {isAdmin && (
+                          <button onClick={() => remove(r.id)} className="w-8 h-8 flex items-center justify-center rounded-sm text-destructive hover:bg-destructive/10" title="Delete" data-testid={`delete-${r.id}`}>
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Card>
       ) : (
         <div className="space-y-3" data-testid="receival-list">

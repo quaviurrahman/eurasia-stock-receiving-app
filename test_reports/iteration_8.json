@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 8 — Frontend-only testing of the new Tiles/Table view toggle on the Receival list. All acceptance criteria pass for both Admin and Staff. Default view is Tiles; Table view renders shadcn Table with correct columns; localStorage persistence works across reloads and detail navigation; both views share the same filtered set; supplier reassignment, checklist Switch toggles, Edit/View/Delete all work in table view for Admin; Staff sees read-only R/I/P badges, supplier name (no dropdown), and only the View action.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_scenarios": [
+    "Admin login via tab-admin-login + login-email/login-password + login-submit",
+    "Default viewMode=tiles (receival-list visible)",
+    "view-toggle contains view-tiles and view-table",
+    "Clicking view-table renders receival-table with columns: Date, Supplier, Status, Received by, Invoice #, Slips, Photos, Pallets, Checklist, Actions (all present)",
+    "Rows have data-testid=receival-trow-<id>",
+    "Admin table row exposes supplier-dropdown-<id>, toggle-recorded/invoice/price-<id>, edit-<id>, view-<id>, delete-<id>",
+    "Toggle-recorded flips aria-checked false→true (persisted, reverted successfully)",
+    "localStorage 'eurasia_receival_filters' contains viewMode:'table' after switching",
+    "Reload preserves Table view",
+    "Search 'Global' filters to 1 row in Table view; switching to Tiles keeps same filter (parity)",
+    "Navigating to detail via view-<id> and back preserves Tiles view",
+    "Staff PIN login (1234) works; view-toggle present",
+    "Staff table view: supplier-name-<id> shown, supplier-dropdown-<id> absent, edit/delete absent, view-<id> present; read-only R/I/P badges visible in screenshot"
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ReceivalListPage.js is 703 lines — approaching the 700-line threshold; consider splitting the Table view, Tiles view and Edit dialog into separate components for maintainability.",
+    "Both Tiles and Table share identical data-testids (edit-<id>, view-<id>, delete-<id>, toggle-*-<id>, supplier-dropdown-<id>, supplier-name-<id>). Since only one view is rendered at a time this is fine, but any future test that queries all-<id> across DOM could get duplicates if both views are ever rendered simultaneously.",
+    "Seed data only shows 4 receivals in this environment (task note said ~11). Not a code bug, just an env observation."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "Admin: admin@eurasia.com / admin123; Staff PIN: 1234",
+  "seed_data_creation": "None — used existing 4 seeded receivals",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Tiles use data-testid=receival-row-<id> (NOT receival-card-<id>). Table uses receival-trow-<id>. Both views share action testids (edit/view/delete/toggle-*/supplier-*), so scope queries to the visible view. localStorage key is 'eurasia_receival_filters' with viewMode field. Auth: eurasia_token in localStorage."
+}
