@@ -118,6 +118,7 @@ const ReceivalListPage = () => {
   const [showFilters, setShowFilters] = useState(stored.showFilters || false);
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, ...(stored.filters || {}) });
   const [viewMode, setViewMode] = useState(stored.viewMode || "tiles");
+  const [editMode, setEditMode] = useState(false);
   const [edit, setEdit] = useState(null); // record being edited
   const [savingEdit, setSavingEdit] = useState(false);
 
@@ -184,6 +185,18 @@ const ReceivalListPage = () => {
       toast.success("Deleted");
     } catch {
       toast.error("Delete failed");
+    }
+  };
+
+  // Inline editing helpers (used when the Edit toggle is on).
+  const setLocal = (id, patch) => setRows((r) => r.map((row) => (row.id === id ? { ...row, ...patch } : row)));
+  const persistField = async (id, patch) => {
+    try {
+      const { data } = await api.put(`/receivals/${id}`, patch);
+      setRows((r) => r.map((row) => (row.id === id ? data : row)));
+    } catch {
+      toast.error("Update failed");
+      load();
     }
   };
 
@@ -291,6 +304,19 @@ const ReceivalListPage = () => {
             </Badge>
           )}
         </Button>
+        {isAdmin && (
+          <label
+            className={`flex items-center gap-2 h-12 px-3 rounded-sm border cursor-pointer transition-colors ${
+              editMode ? "border-accent bg-accent/10 text-accent" : "border-border"
+            }`}
+            data-testid="edit-mode-toggle"
+          >
+            <Switch checked={editMode} onCheckedChange={setEditMode} data-testid="edit-mode-switch" />
+            <span className="text-sm font-medium flex items-center gap-1">
+              <Pencil size={15} /> Edit
+            </span>
+          </label>
+        )}
         <div className="flex rounded-sm border border-border overflow-hidden h-12" data-testid="view-toggle">
           <button
             type="button"
@@ -412,8 +438,8 @@ const ReceivalListPage = () => {
                 <TableHead>Status</TableHead>
                 <TableHead>Received by</TableHead>
                 <TableHead>Invoice #</TableHead>
+                <TableHead>Observation</TableHead>
                 <TableHead className="text-right">Slips</TableHead>
-                <TableHead className="text-right">Photos</TableHead>
                 <TableHead className="text-right">Pallets</TableHead>
                 <TableHead>Checklist</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -423,13 +449,14 @@ const ReceivalListPage = () => {
               {filtered.map((r) => {
                 const entries = (r.slips || []).flatMap((s) => s.entries || []);
                 const slipSum = entries.reduce((a, b) => a + (Number(b) || 0), 0);
+                const canEdit = isAdmin && editMode;
                 return (
                   <TableRow key={r.id} data-testid={`receival-trow-${r.id}`}>
                     <TableCell className="whitespace-nowrap tnum">
                       {new Date(r.createdAt).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
                     </TableCell>
                     <TableCell className="min-w-[180px]">
-                      {isAdmin ? (
+                      {canEdit ? (
                         <SupplierCombobox
                           suppliers={suppliers}
                           value={r.supplierId || ""}
@@ -443,16 +470,74 @@ const ReceivalListPage = () => {
                         <span className="text-sm font-medium" data-testid={`supplier-name-${r.id}`}>{r.supplier?.name || "—"}</span>
                       )}
                     </TableCell>
-                    <TableCell>{r.status?.name ? <Badge variant="secondary" className="rounded-sm">{r.status.name}</Badge> : "—"}</TableCell>
+                    <TableCell className="min-w-[130px]">
+                      {canEdit ? (
+                        <Select value={r.statusId || "none"} onValueChange={(v) => persistField(r.id, { statusId: v === "none" ? null : v })}>
+                          <SelectTrigger className="h-9 rounded-sm" data-testid={`status-select-${r.id}`}>
+                            <SelectValue placeholder="Status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No status</SelectItem>
+                            {statuses.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : r.status?.name ? (
+                        <Badge variant="secondary" className="rounded-sm">{r.status.name}</Badge>
+                      ) : "—"}
+                    </TableCell>
                     <TableCell className="whitespace-nowrap">{r.receivedBy}</TableCell>
-                    <TableCell data-testid={`invoice-number-${r.id}`}>{r.invoiceNumber || "—"}</TableCell>
+                    <TableCell className="min-w-[130px]" data-testid={`invoice-number-${r.id}`}>
+                      {canEdit ? (
+                        <Input
+                          value={r.invoiceNumber || ""}
+                          onChange={(e) => setLocal(r.id, { invoiceNumber: e.target.value })}
+                          onBlur={(e) => persistField(r.id, { invoiceNumber: e.target.value })}
+                          placeholder="INV-…"
+                          className="h-9 rounded-sm"
+                          data-testid={`invoice-input-${r.id}`}
+                        />
+                      ) : (
+                        r.invoiceNumber || "—"
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[180px] max-w-[240px]">
+                      {canEdit ? (
+                        <Input
+                          value={r.observation || ""}
+                          onChange={(e) => setLocal(r.id, { observation: e.target.value })}
+                          onBlur={(e) => persistField(r.id, { observation: e.target.value })}
+                          placeholder="Note…"
+                          className="h-9 rounded-sm"
+                          data-testid={`observation-input-${r.id}`}
+                        />
+                      ) : (
+                        <span className="text-sm text-muted-foreground" title={r.observation} data-testid={`observation-text-${r.id}`}>
+                          {r.observation ? (r.observation.length > 40 ? r.observation.slice(0, 40) + "…" : r.observation) : "—"}
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tnum whitespace-nowrap" data-testid={`slip-total-${r.id}`}>
                       {r.slips?.length ? `${r.slips.length} · Σ${fmt(slipSum)}` : "—"}
                     </TableCell>
-                    <TableCell className="text-right tnum">{r.images?.length || 0}</TableCell>
-                    <TableCell className="text-right tnum">{r.palletCount}</TableCell>
+                    <TableCell className="text-right tnum min-w-[80px]">
+                      {canEdit ? (
+                        <Input
+                          type="number"
+                          min="0"
+                          value={r.palletCount ?? 0}
+                          onChange={(e) => setLocal(r.id, { palletCount: e.target.value })}
+                          onBlur={(e) => persistField(r.id, { palletCount: parseInt(e.target.value) || 0 })}
+                          className="h-9 rounded-sm tnum text-right w-20 ml-auto"
+                          data-testid={`pallet-input-${r.id}`}
+                        />
+                      ) : (
+                        r.palletCount
+                      )}
+                    </TableCell>
                     <TableCell>
-                      {isAdmin ? (
+                      {canEdit ? (
                         <div className="flex items-center gap-2">
                           <Switch checked={!!r.recordedInSystem} onCheckedChange={(v) => toggle(r.id, "recordedInSystem", v)} title="Recorded" data-testid={`toggle-recorded-${r.id}`} />
                           <Switch checked={!!r.invoiceReceived} onCheckedChange={(v) => toggle(r.id, "invoiceReceived", v)} title="Invoice received" data-testid={`toggle-invoice-${r.id}`} />
@@ -468,11 +553,6 @@ const ReceivalListPage = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1 justify-end">
-                        {isAdmin && (
-                          <button onClick={() => setEdit({ ...r })} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-secondary" title="Edit" data-testid={`edit-${r.id}`}>
-                            <Pencil size={15} />
-                          </button>
-                        )}
                         <button onClick={() => navigate(`/receival/${r.id}`)} className="w-8 h-8 flex items-center justify-center rounded-sm hover:bg-secondary" title="View" data-testid={`view-${r.id}`}>
                           <Eye size={15} />
                         </button>
@@ -491,7 +571,9 @@ const ReceivalListPage = () => {
         </Card>
       ) : (
         <div className="space-y-3" data-testid="receival-list">
-          {filtered.map((r) => (
+          {filtered.map((r) => {
+            const canEdit = isAdmin && editMode;
+            return (
             <Card key={r.id} className="rounded-sm border-border p-4" data-testid={`receival-row-${r.id}`}>
               <div className="grid md:grid-cols-[1fr_auto] gap-4">
                 <div className="space-y-3">
@@ -503,22 +585,26 @@ const ReceivalListPage = () => {
                         year: "numeric",
                       })}
                     </Badge>
-                    {r.status?.name && (
+                    {!canEdit && r.status?.name && (
                       <Badge variant="secondary" className="rounded-sm">
                         {r.status.name}
                       </Badge>
                     )}
-                    {r.invoiceNumber && (
+                    {!canEdit && r.invoiceNumber && (
                       <Badge variant="outline" className="rounded-sm border-accent text-accent" data-testid={`invoice-number-${r.id}`}>
                         <FileText size={12} className="mr-1" /> Inv #{r.invoiceNumber}
                       </Badge>
                     )}
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Camera size={12} /> {r.images?.length || 0}
-                    </span>
-                    <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Package size={12} /> {r.palletCount} pallets
-                    </span>
+                    {!canEdit && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Camera size={12} /> {r.images?.length || 0}
+                      </span>
+                    )}
+                    {!canEdit && (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Package size={12} /> {r.palletCount} pallets
+                      </span>
+                    )}
                     {r.slips?.length > 0 &&
                       (() => {
                         const entries = r.slips.flatMap((s) => s.entries || []);
@@ -536,7 +622,7 @@ const ReceivalListPage = () => {
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide sm:w-20">
                       Supplier
                     </span>
-                    {isAdmin ? (
+                    {canEdit ? (
                       <div className="sm:max-w-xs w-full">
                         <SupplierCombobox
                           suppliers={suppliers}
@@ -555,12 +641,65 @@ const ReceivalListPage = () => {
                     )}
                   </div>
 
+                  {canEdit && (
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</span>
+                        <Select value={r.statusId || "none"} onValueChange={(v) => persistField(r.id, { statusId: v === "none" ? null : v })}>
+                          <SelectTrigger className="h-11 rounded-sm mt-1" data-testid={`status-select-${r.id}`}>
+                            <SelectValue placeholder="Status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No status</SelectItem>
+                            {statuses.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pallets</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={r.palletCount ?? 0}
+                          onChange={(e) => setLocal(r.id, { palletCount: e.target.value })}
+                          onBlur={(e) => persistField(r.id, { palletCount: parseInt(e.target.value) || 0 })}
+                          className="h-11 rounded-sm mt-1 tnum"
+                          data-testid={`pallet-input-${r.id}`}
+                        />
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Invoice #</span>
+                        <Input
+                          value={r.invoiceNumber || ""}
+                          onChange={(e) => setLocal(r.id, { invoiceNumber: e.target.value })}
+                          onBlur={(e) => persistField(r.id, { invoiceNumber: e.target.value })}
+                          placeholder="INV-…"
+                          className="h-11 rounded-sm mt-1"
+                          data-testid={`invoice-input-${r.id}`}
+                        />
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Observation</span>
+                        <Input
+                          value={r.observation || ""}
+                          onChange={(e) => setLocal(r.id, { observation: e.target.value })}
+                          onBlur={(e) => persistField(r.id, { observation: e.target.value })}
+                          placeholder="Note…"
+                          className="h-11 rounded-sm mt-1"
+                          data-testid={`observation-input-${r.id}`}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="text-sm text-muted-foreground">
                     Received by <span className="text-foreground font-medium">{r.receivedBy}</span>
-                    {r.observation && <> — “{r.observation}”</>}
+                    {!canEdit && r.observation && <> — “{r.observation}”</>}
                   </div>
 
-                  {isAdmin ? (
+                  {canEdit ? (
                     <div className="flex flex-wrap gap-x-5 gap-y-2 pt-1">
                       <Toggle checked={!!r.recordedInSystem} onChange={(v) => toggle(r.id, "recordedInSystem", v)} label="Recorded" testid={`toggle-recorded-${r.id}`} />
                       <Toggle checked={!!r.invoiceReceived} onChange={(v) => toggle(r.id, "invoiceReceived", v)} label="Invoice received" testid={`toggle-invoice-${r.id}`} />
@@ -576,11 +715,6 @@ const ReceivalListPage = () => {
                 </div>
 
                 <div className="flex md:flex-col gap-2 justify-end">
-                  {isAdmin && (
-                    <Button variant="outline" onClick={() => setEdit({ ...r })} className="h-10 rounded-sm" data-testid={`edit-${r.id}`}>
-                      <Pencil size={16} className="mr-2" /> Edit
-                    </Button>
-                  )}
                   <Button variant="outline" onClick={() => navigate(`/receival/${r.id}`)} className="h-10 rounded-sm" data-testid={`view-${r.id}`}>
                     <Eye size={16} className="mr-2" /> {isAdmin ? "View" : "Open"}
                   </Button>
@@ -592,7 +726,8 @@ const ReceivalListPage = () => {
                 </div>
               </div>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 

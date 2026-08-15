@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 9 frontend-only test: Edit-mode toggle + Table 'Observation' (Photos removed) verified end-to-end. Admin sees edit-mode-toggle (default OFF); with edit OFF both Tiles and Table are read-only (no inline inputs, R/I/P badges only, supplier-name span, observation-text truncated to 41 chars with ellipsis and full text in title attribute). With edit ON, all fields (supplier-dropdown, status-select, pallet-input, invoice-input, observation-input, and toggle-recorded/invoice/price switches) are inline-editable in BOTH views. Persistence confirmed via PUT /api/receivals/<id> and page reload: pallet=77, invoice=INV-TEST-9 (auto-ticked Invoice received), observation edit, and priceChecked toggle all persisted. Table headers = [Date, Supplier, Status, Received by, Invoice #, Observation, Slips, Pallets, Checklist, Actions] — no 'Photos' column, Observation column present. Staff (PIN 1234) has NO edit-mode toggle/switch and NO inline inputs in either view; only R/I/P badges + View action.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ReceivalListPage.js is 839 lines — consider splitting into TilesView.js, TableView.js and shared hooks (persistField, setLocal) for maintainability.",
+    "editMode state is not persisted (resets to OFF on reload). Not required per spec, but consider storing in localStorage like viewMode for better UX.",
+    "Read-only supplier/status/observation rely on plain spans; ensure sufficient color contrast for '—' placeholders (muted-foreground on white)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@eurasia.com / admin123 (admin), PIN 1234 (staff)",
+  "seed_data_creation": "Modified existing Global Produce Co receival (id bbf657ff-6902-4561-811d-ef275e34ba37): palletCount=77, invoiceNumber=INV-TEST-9, observation=TEST_iter9_obs, priceChecked=false. Restored one other observation to 'staff created' after truncation test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Only 4 receivals exist (spec mentioned ~11 — data may have been cleaned in an earlier iteration; not blocking). view-toggle buttons do NOT have per-button data-testids — use button[title='Table view'] / button[title='Tiles view']. Login redirects to '/' not '/receivals' (list is on root). Field name on frontend is palletCount but backend serializes as palletsReceived — beware when reading API dumps.",
+  "rca of the issue": "No functional issues found."
+}
