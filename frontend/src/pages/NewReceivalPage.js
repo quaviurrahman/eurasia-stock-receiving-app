@@ -39,11 +39,13 @@ const NewReceivalPage = () => {
   const sigRef = useRef(null);
   const [suppliers, setSuppliers] = useState([]);
   const [statuses, setStatuses] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState({
     supplierId: "",
     statusId: "",
+    locationId: "",
     deliveryDate: new Date().toISOString().slice(0, 10),
     observation: "",
     palletCount: 0,
@@ -56,13 +58,15 @@ const NewReceivalPage = () => {
 
   useEffect(() => {
     (async () => {
-      const [sup, stat, cfg] = await Promise.all([
+      const [sup, stat, loc, cfg] = await Promise.all([
         api.get("/suppliers"),
         api.get("/statuses"),
+        api.get("/locations"),
         api.get("/config"),
       ]);
       setSuppliers(sup.data);
       setStatuses(stat.data);
+      setLocations(loc.data);
       if (cfg.data?.defaultStatusId) {
         set("statusId", cfg.data.defaultStatusId);
       }
@@ -98,6 +102,7 @@ const NewReceivalPage = () => {
     const payload = {
       supplierId: form.supplierId || null,
       statusId: form.statusId || null,
+      locationId: form.locationId || null,
       deliveryDate: form.deliveryDate || null,
       observation: form.observation,
       palletCount: parseInt(form.palletCount) || 0,
@@ -163,6 +168,21 @@ const NewReceivalPage = () => {
                   {statuses.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Storage location</Label>
+              <Select value={form.locationId} onValueChange={(v) => set("locationId", v)}>
+                <SelectTrigger className="mt-1 h-12 rounded-sm" data-testid="location-select">
+                  <SelectValue placeholder="Select location" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((l) => (
+                    <SelectItem key={l.id} value={l.id}>
+                      {l.name}
                     </SelectItem>
                   ))}
                 </SelectContent>

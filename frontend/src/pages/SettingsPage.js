@@ -82,21 +82,25 @@ const SettingsPage = () => {
   const [suppliers, setSuppliers] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [archive, setArchive] = useState({ count: 0, records: [] });
   const [defaultStatusId, setDefaultStatusId] = useState("");
+  const [statusName, setStatusName] = useState("");
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    const [sup, stat, stf, arc, cfg] = await Promise.all([
+    const [sup, stat, stf, loc, arc, cfg] = await Promise.all([
       api.get("/suppliers"),
       api.get("/statuses"),
       api.get("/staff"),
+      api.get("/locations"),
       api.get("/archive/preview"),
       api.get("/config"),
     ]);
     setSuppliers(sup.data);
     setStatuses(stat.data);
     setStaff(stf.data);
+    setLocations(loc.data);
     setArchive(arc.data);
     setDefaultStatusId(cfg.data?.defaultStatusId || "");
   };
@@ -126,6 +130,18 @@ const SettingsPage = () => {
     toast.success("Status added");
     load();
   };
+  const addStatusNew = async () => {
+    if (!statusName.trim()) return;
+    await api.post("/statuses", { name: statusName.trim() });
+    setStatusName("");
+    toast.success("Status added");
+    load();
+  };
+  const updateStatus = async (id, name, color) => {
+    setStatuses((list) => list.map((s) => (s.id === id ? { ...s, color } : s)));
+    await api.put(`/statuses/${id}`, { name, color });
+    toast.success("Status colour updated");
+  };
   const delStatus = async (id) => {
     await api.delete(`/statuses/${id}`);
     toast.success("Status removed");
@@ -139,6 +155,16 @@ const SettingsPage = () => {
   const delStaff = async (id) => {
     await api.delete(`/staff/${id}`);
     toast.success("Staff removed");
+    load();
+  };
+  const addLocation = async (name) => {
+    await api.post("/locations", { name });
+    toast.success("Location added");
+    load();
+  };
+  const delLocation = async (id) => {
+    await api.delete(`/locations/${id}`);
+    toast.success("Location removed");
     load();
   };
 
@@ -173,8 +199,9 @@ const SettingsPage = () => {
     <div className="max-w-3xl mx-auto">
       <h1 className="font-head font-black text-3xl sm:text-4xl tracking-tight mb-6">Admin</h1>
       <Tabs defaultValue="suppliers">
-        <TabsList className="rounded-sm h-auto grid grid-cols-4 w-full p-1">
+        <TabsList className="rounded-sm h-auto grid grid-cols-5 w-full p-1">
           <TabsTrigger value="suppliers" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-suppliers">Suppliers</TabsTrigger>
+          <TabsTrigger value="locations" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-locations">Locations</TabsTrigger>
           <TabsTrigger value="statuses" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-statuses">Statuses</TabsTrigger>
           <TabsTrigger value="staff" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-staff">Staff PINs</TabsTrigger>
           <TabsTrigger value="archive" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-archive">Archive</TabsTrigger>
@@ -190,6 +217,17 @@ const SettingsPage = () => {
             testid="supplier"
           />
         </TabsContent>
+        <TabsContent value="locations" className="mt-4">
+          <CrudList
+            title="Storage locations"
+            items={locations}
+            onAdd={addLocation}
+            onDelete={delLocation}
+            placeholder="New location name"
+            testid="location"
+          />
+        </TabsContent>
+
         <TabsContent value="statuses" className="mt-4 space-y-4">
           <Card className="rounded-sm border-border p-5">
             <h3 className="font-head font-bold text-lg mb-1">Default status</h3>
@@ -210,14 +248,59 @@ const SettingsPage = () => {
               </SelectContent>
             </Select>
           </Card>
-          <CrudList
-            title="Statuses"
-            items={statuses}
-            onAdd={addStatus}
-            onDelete={delStatus}
-            placeholder="New status name"
-            testid="status"
-          />
+          <Card className="rounded-sm border-border p-5">
+            <h3 className="font-head font-bold text-lg mb-1">Statuses</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Pick a colour to tint receival rows. Choose “No colour” to keep the default row look.
+            </p>
+            <div className="space-y-2 mb-4">
+              {statuses.length === 0 && <p className="text-sm text-muted-foreground">None yet.</p>}
+              {statuses.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 border border-border rounded-sm px-3 h-14" data-testid={`status-item-${s.id}`}>
+                  <span
+                    className="w-5 h-5 rounded-sm border border-border shrink-0"
+                    style={{ background: s.color || "transparent" }}
+                    data-testid={`status-swatch-${s.id}`}
+                  />
+                  <span className="text-sm font-medium flex-1 truncate">{s.name}</span>
+                  <input
+                    type="color"
+                    value={s.color || "#2563eb"}
+                    onChange={(e) => updateStatus(s.id, s.name, e.target.value)}
+                    className="w-10 h-9 rounded-sm border border-border cursor-pointer bg-transparent p-0.5"
+                    title="Pick colour"
+                    data-testid={`status-color-${s.id}`}
+                  />
+                  <button
+                    onClick={() => updateStatus(s.id, s.name, null)}
+                    className="text-xs font-medium px-2 h-9 border border-border rounded-sm hover:bg-secondary"
+                    data-testid={`status-nocolor-${s.id}`}
+                  >
+                    No colour
+                  </button>
+                  <button
+                    onClick={() => delStatus(s.id)}
+                    className="text-destructive hover:bg-destructive/10 rounded-sm w-9 h-9 flex items-center justify-center shrink-0"
+                    data-testid={`status-delete-${s.id}`}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={statusName}
+                onChange={(e) => setStatusName(e.target.value)}
+                placeholder="New status name"
+                className="h-11 rounded-sm"
+                data-testid="status-name-input"
+              />
+              <Button onClick={addStatusNew} className="h-11 rounded-sm bg-accent text-accent-foreground hover:bg-accent/90" data-testid="status-add-btn">
+                <Plus size={16} />
+              </Button>
+            </div>
+          </Card>
         </TabsContent>
         <TabsContent value="staff" className="mt-4">
           <CrudList

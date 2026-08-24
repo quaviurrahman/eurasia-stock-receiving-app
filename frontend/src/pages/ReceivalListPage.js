@@ -45,6 +45,7 @@ import {
   Package,
   Pencil,
   Calculator,
+  MapPin,
   LayoutGrid,
   Table as TableIcon,
   SlidersHorizontal,
@@ -106,6 +107,23 @@ const loadStored = () => {
   }
 };
 
+const hexToRgba = (hex, a) => {
+  if (!hex || typeof hex !== "string") return null;
+  const m = hex.replace("#", "").match(/^([0-9a-f]{6})$/i);
+  if (!m) return null;
+  const int = parseInt(m[1], 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b = int & 255;
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+};
+
+const rowTint = (color) => {
+  const bg = hexToRgba(color, 0.14);
+  const border = hexToRgba(color, 0.55);
+  return bg ? { backgroundColor: bg, borderColor: border } : {};
+};
+
 const ReceivalListPage = () => {
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
@@ -113,6 +131,7 @@ const ReceivalListPage = () => {
   const [rows, setRows] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [statuses, setStatuses] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(stored.search || "");
   const [showFilters, setShowFilters] = useState(stored.showFilters || false);
@@ -129,14 +148,16 @@ const ReceivalListPage = () => {
 
   const load = async () => {
     try {
-      const [recs, sup, stat] = await Promise.all([
+      const [recs, sup, stat, loc] = await Promise.all([
         api.get("/receivals"),
         api.get("/suppliers"),
         api.get("/statuses"),
+        api.get("/locations"),
       ]);
       setRows(recs.data);
       setSuppliers(sup.data);
       setStatuses(stat.data);
+      setLocations(loc.data);
     } catch {
       toast.error("Failed to load receivals");
     } finally {
@@ -435,6 +456,7 @@ const ReceivalListPage = () => {
               <TableRow>
                 <TableHead>Date</TableHead>
                 <TableHead>Supplier</TableHead>
+                <TableHead>Location</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Received by</TableHead>
                 <TableHead>Invoice #</TableHead>
@@ -451,7 +473,7 @@ const ReceivalListPage = () => {
                 const slipSum = entries.reduce((a, b) => a + (Number(b) || 0), 0);
                 const canEdit = isAdmin && editMode;
                 return (
-                  <TableRow key={r.id} data-testid={`receival-trow-${r.id}`}>
+                  <TableRow key={r.id} data-testid={`receival-trow-${r.id}`} style={rowTint(r.status?.color)}>
                     <TableCell className="whitespace-nowrap tnum">
                       {new Date(r.createdAt).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })}
                     </TableCell>
@@ -468,6 +490,23 @@ const ReceivalListPage = () => {
                         />
                       ) : (
                         <span className="text-sm font-medium" data-testid={`supplier-name-${r.id}`}>{r.supplier?.name || "—"}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="min-w-[130px]">
+                      {canEdit ? (
+                        <Select value={r.locationId || "none"} onValueChange={(v) => persistField(r.id, { locationId: v === "none" ? null : v })}>
+                          <SelectTrigger className="h-9 rounded-sm" data-testid={`location-select-${r.id}`}>
+                            <SelectValue placeholder="Location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No location</SelectItem>
+                            {locations.map((l) => (
+                              <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-sm" data-testid={`location-name-${r.id}`}>{r.location?.name || "—"}</span>
                       )}
                     </TableCell>
                     <TableCell className="min-w-[130px]">
@@ -574,7 +613,7 @@ const ReceivalListPage = () => {
           {filtered.map((r) => {
             const canEdit = isAdmin && editMode;
             return (
-            <Card key={r.id} className="rounded-sm border-border p-4" data-testid={`receival-row-${r.id}`}>
+            <Card key={r.id} className="rounded-sm border-border p-4" data-testid={`receival-row-${r.id}`} style={rowTint(r.status?.color)}>
               <div className="grid md:grid-cols-[1fr_auto] gap-4">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -588,6 +627,11 @@ const ReceivalListPage = () => {
                     {!canEdit && r.status?.name && (
                       <Badge variant="secondary" className="rounded-sm">
                         {r.status.name}
+                      </Badge>
+                    )}
+                    {!canEdit && r.location?.name && (
+                      <Badge variant="outline" className="rounded-sm" data-testid={`location-name-${r.id}`}>
+                        <MapPin size={12} className="mr-1" /> {r.location.name}
                       </Badge>
                     )}
                     {!canEdit && r.invoiceNumber && (
@@ -653,6 +697,20 @@ const ReceivalListPage = () => {
                             <SelectItem value="none">No status</SelectItem>
                             {statuses.map((s) => (
                               <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Storage location</span>
+                        <Select value={r.locationId || "none"} onValueChange={(v) => persistField(r.id, { locationId: v === "none" ? null : v })}>
+                          <SelectTrigger className="h-11 rounded-sm mt-1" data-testid={`location-select-${r.id}`}>
+                            <SelectValue placeholder="Location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No location</SelectItem>
+                            {locations.map((l) => (
+                              <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>

@@ -1,0 +1,26 @@
+{
+  "summary": "Iteration 11 - Storage Locations feature + wider table. Backend pytest (6/6) passes: locations CRUD, staff RBAC (403 on POST/PUT locationId), create/update receival with locationId, enrichment via _enrich() adds location object, changeLog captures 'storage location' field change. Frontend Playwright verifies: admin login, Settings > Locations tab (tab-locations) shows 5 seeded locations, add flow works via location-name-input + location-add-btn; /new page has location-select with all 5 locations and a submitted receival is enriched with location.name='Cold Store B'; List Table view shows 'Location' column, at 1920x1080 documentElement.scrollWidth==clientWidth (0px overflow), Edit toggle enables 4 location-select-<id> selects (one per row); Tiles view shows Cold Store B location badge (location-name-<id>); Detail page (/receival/:id) shows 'Storage location' field and edit-detail-location select for admin only, staff has read-only view (no edit-detail-location).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11_locations.py",
+    "/app/test_reports/pytest/iter11.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Route is `/receival/:id` (singular) in App.js while list/API uses `/receivals` plural — inconsistency is easy to trip on; consider aliasing both.",
+    "ReceivalListPage.js is large (>700 lines with tiles + table + edit modes) — consider splitting Tiles/Table view components for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration11_locations.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@eurasia.com / admin123, staff PIN 1234",
+  "seed_data_creation": "Test locations/receivals created & deleted; verified seeded default locations exist (Cold Store A/B, Dry Store, Freezer, Receiving Bay). Restored 'Cold Store A' after inadvertent test-side deletion.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Detail page URL is /receival/:id (singular), list is /api/receivals (plural). Radix Select options are portal-rendered; select via page.get_by_role('option', name='...'). Form submit on /new can be triggered via document.querySelector('[data-testid=receival-form]').requestSubmit(). Admin Edit toggle is data-testid='edit-mode-switch' on list. Locations testids: tab-locations, location-name-input, location-add-btn, location-delete-<id>, location-select (create form), location-select-<id> / location-name-<id> (list rows), edit-detail-location (admin detail edit).",
+  "rca of the issue": "N/A - no functional bugs found for this iteration."
+}

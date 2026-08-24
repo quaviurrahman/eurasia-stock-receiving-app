@@ -8,6 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import CameraCapture from "@/components/CameraCapture";
 import SignaturePad from "@/components/SignaturePad";
 import { SlipsEditor, SlipsView } from "@/components/Slips";
@@ -45,6 +52,7 @@ const ReceivalDetailsPage = () => {
   const { isAdmin } = useAuth();
   const sigRef = useRef(null);
   const [rec, setRec] = useState(undefined);
+  const [locations, setLocations] = useState([]);
   const [zoom, setZoom] = useState(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -68,6 +76,7 @@ const ReceivalDetailsPage = () => {
 
   useEffect(() => {
     load();
+    api.get("/locations").then((r) => setLocations(r.data)).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -78,6 +87,7 @@ const ReceivalDetailsPage = () => {
       items: (rec.items || []).map((it) => ({ ...it })),
       slips: (rec.slips || []).map((s) => ({ label: s.label || "", entries: [...(s.entries || [])] })),
       invoiceNumber: rec.invoiceNumber || "",
+      locationId: rec.locationId || "",
     });
     setRemoveImagePaths([]);
     setNewImages([]);
@@ -125,6 +135,7 @@ const ReceivalDetailsPage = () => {
         })),
       };
       if (isAdmin) payload.invoiceNumber = draft.invoiceNumber || "";
+      if (isAdmin) payload.locationId = draft.locationId || null;
       await api.put(`/receivals/${id}`, payload);
       if (newImages.length || removeImagePaths.length || newSignatures.length || removeSigPaths.length) {
         await api.post(`/receivals/${id}/media`, {
@@ -205,6 +216,24 @@ const ReceivalDetailsPage = () => {
             <Field label="Status" value={rec.status?.name} />
             <Field label="Delivery date" value={rec.deliveryDate ? rec.deliveryDate.substring(0, 10) : null} />
             <Field label="Received by" value={rec.receivedBy} />
+            {editing && isAdmin ? (
+              <div>
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Storage location</Label>
+                <Select value={draft.locationId || "none"} onValueChange={(v) => setDraft((d) => ({ ...d, locationId: v === "none" ? "" : v }))}>
+                  <SelectTrigger className="h-10 rounded-sm mt-1" data-testid="edit-detail-location">
+                    <SelectValue placeholder="Location" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No location</SelectItem>
+                    {locations.map((l) => (
+                      <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <Field label="Storage location" value={rec.location?.name} />
+            )}
             {editing ? (
               <div>
                 <Label className="text-xs uppercase tracking-wide text-muted-foreground">Pallets</Label>

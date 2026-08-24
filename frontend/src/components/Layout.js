@@ -35,7 +35,7 @@ const Layout = () => {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-40 bg-background border-b border-border">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-[1600px] mx-auto px-4 h-16 flex items-center justify-between">
           <button onClick={() => navigate("/")} data-testid="brand-home" className="flex items-center gap-2">
             <img src="/logo.jpg" alt="EurasiaStockIntake" className="w-10 h-10 rounded-full object-cover border border-border" />
             <div className="text-left leading-none">
@@ -73,7 +73,7 @@ const Layout = () => {
         </div>
       </header>
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 pb-24 md:pb-6">
+      <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 py-6 pb-24 md:pb-6">
         <Outlet />
       </main>
 

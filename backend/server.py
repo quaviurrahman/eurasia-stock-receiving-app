@@ -193,6 +193,11 @@ class ConfigInput(BaseModel):
     defaultStatusId: Optional[str] = None
 
 
+class StatusInput(BaseModel):
+    name: str
+    color: Optional[str] = None
+
+
 class StaffInput(BaseModel):
     name: str
     pin: str
@@ -217,6 +222,7 @@ class Slip(BaseModel):
 class ReceivalCreate(BaseModel):
     supplierId: Optional[str] = None
     statusId: Optional[str] = None
+    locationId: Optional[str] = None
     deliveryDate: Optional[str] = None
     observation: str = ""
     palletCount: Optional[int] = 0
@@ -231,6 +237,7 @@ class ReceivalCreate(BaseModel):
 class ReceivalUpdate(BaseModel):
     supplierId: Optional[str] = None
     statusId: Optional[str] = None
+    locationId: Optional[str] = None
     deliveryDate: Optional[str] = None
     observation: Optional[str] = None
     palletCount: Optional[int] = None
@@ -340,6 +347,33 @@ async def delete_supplier(supplier_id: str, current=Depends(require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# Storage locations
+# ---------------------------------------------------------------------------
+@api_router.get("/locations")
+async def list_locations():
+    return await db.locations.find({}, {"_id": 0}).to_list(1000)
+
+
+@api_router.post("/locations")
+async def add_location(data: NamedInput, current=Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), "name": data.name}
+    await db.locations.insert_one(doc)
+    return {"id": doc["id"], "name": doc["name"]}
+
+
+@api_router.put("/locations/{location_id}")
+async def update_location(location_id: str, data: NamedInput, current=Depends(require_admin)):
+    await db.locations.update_one({"id": location_id}, {"$set": {"name": data.name}})
+    return {"ok": True}
+
+
+@api_router.delete("/locations/{location_id}")
+async def delete_location(location_id: str, current=Depends(require_admin)):
+    await db.locations.delete_one({"id": location_id})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Statuses
 # ---------------------------------------------------------------------------
 @api_router.get("/statuses")
@@ -348,10 +382,16 @@ async def list_statuses():
 
 
 @api_router.post("/statuses")
-async def add_status(data: NamedInput, current=Depends(require_admin)):
-    doc = {"id": str(uuid.uuid4()), "name": data.name}
+async def add_status(data: StatusInput, current=Depends(require_admin)):
+    doc = {"id": str(uuid.uuid4()), "name": data.name, "color": data.color}
     await db.statuses.insert_one(doc)
-    return {"id": doc["id"], "name": doc["name"]}
+    return {"id": doc["id"], "name": doc["name"], "color": doc["color"]}
+
+
+@api_router.put("/statuses/{status_id}")
+async def update_status(status_id: str, data: StatusInput, current=Depends(require_admin)):
+    await db.statuses.update_one({"id": status_id}, {"$set": {"name": data.name, "color": data.color}})
+    return {"ok": True}
 
 
 @api_router.delete("/statuses/{status_id}")
@@ -450,8 +490,10 @@ async def analytics(current=Depends(require_admin)):
 async def _enrich(rec: dict) -> dict:
     supplier = await db.suppliers.find_one({"id": rec.get("supplierId")}, {"_id": 0}) if rec.get("supplierId") else None
     status = await db.statuses.find_one({"id": rec.get("statusId")}, {"_id": 0}) if rec.get("statusId") else None
+    location = await db.locations.find_one({"id": rec.get("locationId")}, {"_id": 0}) if rec.get("locationId") else None
     rec["supplier"] = supplier
     rec["status"] = status
+    rec["location"] = location
     return rec
 
 
@@ -493,6 +535,7 @@ async def create_receival(data: ReceivalCreate, current=Depends(get_current_user
         "id": str(uuid.uuid4()),
         "supplierId": data.supplierId,
         "statusId": status_id,
+        "locationId": data.locationId,
         "deliveryDate": data.deliveryDate,
         "observation": data.observation,
         "palletCount": data.palletCount or 0,
@@ -522,6 +565,7 @@ FIELD_LABELS = {
     "observation": "observation",
     "supplierId": "supplier",
     "statusId": "status",
+    "locationId": "storage location",
     "deliveryDate": "delivery date",
     "invoiceNumber": "invoice number",
     "recordedInSystem": "recorded",
@@ -688,6 +732,9 @@ async def startup():
             await db.statuses.insert_one({"id": str(uuid.uuid4()), "name": n})
     if await db.staff.count_documents({}) == 0:
         await db.staff.insert_one({"id": str(uuid.uuid4()), "name": "Warehouse Staff", "pin": "1234"})
+    if await db.locations.count_documents({}) == 0:
+        for n in ["Cold Store A", "Cold Store B", "Dry Store", "Freezer", "Receiving Bay"]:
+            await db.locations.insert_one({"id": str(uuid.uuid4()), "name": n})
 
 
 @app.on_event("shutdown")
