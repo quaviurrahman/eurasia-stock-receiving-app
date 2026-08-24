@@ -191,6 +191,7 @@ class NamedInput(BaseModel):
 
 class ConfigInput(BaseModel):
     defaultStatusId: Optional[str] = None
+    checklistCompleteStatusId: Optional[str] = None
 
 
 class StatusInput(BaseModel):
@@ -406,15 +407,15 @@ async def delete_status(status_id: str, current=Depends(require_admin)):
 @api_router.get("/config")
 async def get_config(current=Depends(get_current_user)):
     cfg = await db.config.find_one({"key": "app"}, {"_id": 0})
-    return cfg or {"key": "app", "defaultStatusId": None}
+    return cfg or {"key": "app", "defaultStatusId": None, "checklistCompleteStatusId": None}
 
 
 @api_router.put("/config")
 async def set_config(data: ConfigInput, current=Depends(require_admin)):
-    await db.config.update_one(
-        {"key": "app"}, {"$set": {"defaultStatusId": data.defaultStatusId}}, upsert=True
-    )
-    return {"key": "app", "defaultStatusId": data.defaultStatusId}
+    update = data.model_dump(exclude_unset=True)
+    await db.config.update_one({"key": "app"}, {"$set": update}, upsert=True)
+    cfg = await db.config.find_one({"key": "app"}, {"_id": 0})
+    return cfg
 
 
 # ---------------------------------------------------------------------------
@@ -589,6 +590,24 @@ async def update_receival(rec_id: str, data: ReceivalUpdate, current=Depends(get
     # Auto-tick "Invoice received" when an invoice number is entered; un-tick when cleared.
     if "invoiceNumber" in update:
         update["invoiceReceived"] = bool(update["invoiceNumber"])
+
+    # Auto status transition based on checklist completion (skip if status set explicitly).
+    if "statusId" not in update:
+        merged = {**rec, **update}
+        all_done = (
+            bool(merged.get("recordedInSystem"))
+            and bool(merged.get("invoiceReceived"))
+            and bool(merged.get("priceChecked"))
+        )
+        cfg = await db.config.find_one({"key": "app"}) or {}
+        complete_status = cfg.get("checklistCompleteStatusId")
+        default_status = cfg.get("defaultStatusId")
+        current_status = merged.get("statusId")
+        if complete_status:
+            if all_done and current_status != complete_status:
+                update["statusId"] = complete_status
+            elif not all_done and current_status == complete_status:
+                update["statusId"] = default_status
 
     changes = {}
     for k, v in update.items():

@@ -85,6 +85,7 @@ const SettingsPage = () => {
   const [locations, setLocations] = useState([]);
   const [archive, setArchive] = useState({ count: 0, records: [] });
   const [defaultStatusId, setDefaultStatusId] = useState("");
+  const [checklistStatusId, setChecklistStatusId] = useState("");
   const [statusName, setStatusName] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -103,6 +104,7 @@ const SettingsPage = () => {
     setLocations(loc.data);
     setArchive(arc.data);
     setDefaultStatusId(cfg.data?.defaultStatusId || "");
+    setChecklistStatusId(cfg.data?.checklistCompleteStatusId || "");
   };
 
   useEffect(() => {
@@ -113,6 +115,12 @@ const SettingsPage = () => {
     setDefaultStatusId(id);
     await api.put("/config", { defaultStatusId: id || null });
     toast.success("Default status saved");
+  };
+
+  const saveChecklistStatus = async (id) => {
+    setChecklistStatusId(id);
+    await api.put("/config", { checklistCompleteStatusId: id || null });
+    toast.success("Checklist-complete status saved");
   };
 
   const addSupplier = async (name) => {
@@ -240,6 +248,26 @@ const SettingsPage = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No default</SelectItem>
+                {statuses.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Card>
+          <Card className="rounded-sm border-border p-5">
+            <h3 className="font-head font-bold text-lg mb-1">Checklist-complete status</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              When a receival's whole checklist is ticked (recorded, invoice received & price checked),
+              its status changes to this automatically. If any item is later un-ticked, it reverts to the default status.
+            </p>
+            <Select value={checklistStatusId || "none"} onValueChange={(v) => saveChecklistStatus(v === "none" ? "" : v)}>
+              <SelectTrigger className="h-11 rounded-sm max-w-sm" data-testid="checklist-status-select">
+                <SelectValue placeholder="No auto-transition" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No auto-transition</SelectItem>
                 {statuses.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
                     {s.name}

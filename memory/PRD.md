@@ -43,6 +43,12 @@ Archive tool to download + remove records older than 3 months.
 - Object storage integration verified end-to-end (upload + serve).
 - Testing: 16/16 backend pytest + full frontend E2E, 100% pass, no bugs.
 
+## Implemented (2026-06 update)
+- Automated checklist status transition: admin sets a "Checklist-complete status" (Settings → Statuses).
+  When a receival's 3 checklist toggles (recordedInSystem + invoiceReceived + priceChecked) are all ticked,
+  status auto-changes to that status; un-ticking any reverts to the default status. Applies to Admin & Staff
+  edits. Skipped when statusId is set explicitly in the same update. Config key: checklistCompleteStatusId.
+
 ## Backlog / Remaining (not requested / future)
 - P1: Security hardening — hash staff PINs, require JWT (not just PIN) on POST /receivals, rate-limit
   /verify-pin, set explicit CORS origin.
