@@ -99,6 +99,7 @@ const DEFAULT_FILTERS = {
 };
 
 const STORAGE_KEY = "eurasia_receival_filters";
+const PAGE_SIZE = 20;
 const loadStored = () => {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
@@ -129,11 +130,14 @@ const ReceivalListPage = () => {
   const { isAdmin } = useAuth();
   const stored = loadStored();
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [suppliers, setSuppliers] = useState([]);
   const [statuses, setStatuses] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(stored.search || "");
+  const [debouncedSearch, setDebouncedSearch] = useState(stored.search || "");
   const [showFilters, setShowFilters] = useState(stored.showFilters || false);
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, ...(stored.filters || {}) });
   const [viewMode, setViewMode] = useState(stored.viewMode || "tiles");
@@ -146,18 +150,47 @@ const ReceivalListPage = () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ search, showFilters, filters, viewMode }));
   }, [search, showFilters, filters, viewMode]);
 
-  const load = async () => {
+  // Debounce the search box so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const filtersKey = JSON.stringify(filters);
+
+  // Load lookup lists once.
+  useEffect(() => {
+    (async () => {
+      try {
+        const [sup, stat, loc] = await Promise.all([
+          api.get("/suppliers"),
+          api.get("/statuses"),
+          api.get("/locations"),
+        ]);
+        setSuppliers(sup.data);
+        setStatuses(stat.data);
+        setLocations(loc.data);
+      } catch {
+        toast.error("Failed to load settings");
+      }
+    })();
+  }, []);
+
+  const loadReceivals = async () => {
+    setLoading(true);
     try {
-      const [recs, sup, stat, loc] = await Promise.all([
-        api.get("/receivals"),
-        api.get("/suppliers"),
-        api.get("/statuses"),
-        api.get("/locations"),
-      ]);
-      setRows(recs.data);
-      setSuppliers(sup.data);
-      setStatuses(stat.data);
-      setLocations(loc.data);
+      const params = { page, limit: PAGE_SIZE };
+      if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+      if (filters.supplier) params.supplierId = filters.supplier;
+      if (filters.status) params.statusId = filters.status;
+      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters.dateTo) params.dateTo = filters.dateTo;
+      if (filters.recorded !== "all") params.recorded = filters.recorded;
+      if (filters.invoice !== "all") params.invoice = filters.invoice;
+      if (filters.price !== "all") params.price = filters.price;
+      const { data } = await api.get("/receivals", { params });
+      setRows(data.items);
+      setTotal(data.total);
     } catch {
       toast.error("Failed to load receivals");
     } finally {
@@ -165,9 +198,18 @@ const ReceivalListPage = () => {
     }
   };
 
+  // Reset to first page whenever the search term or filters change.
   useEffect(() => {
-    load();
-  }, []);
+    setPage(1);
+  }, [debouncedSearch, filtersKey]);
+
+  // Fetch the current page whenever page, search or filters change.
+  useEffect(() => {
+    loadReceivals();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedSearch, filtersKey]);
+
+  const load = loadReceivals;
 
   const setFilter = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
 
@@ -202,8 +244,8 @@ const ReceivalListPage = () => {
     if (!window.confirm("Delete this receival record?")) return;
     try {
       await api.delete(`/receivals/${id}`);
-      setRows((r) => r.filter((row) => row.id !== id));
       toast.success("Deleted");
+      loadReceivals();
     } catch {
       toast.error("Delete failed");
     }
@@ -256,28 +298,9 @@ const ReceivalListPage = () => {
     return c;
   }, [filters]);
 
-  const filtered = useMemo(() => {
-    const term = search.toLowerCase();
-    const matchBool = (val, filt) =>
-      filt === "all" ? true : filt === "true" ? !!val : !val;
-    return rows.filter((r) => {
-      if (filters.supplier && r.supplierId !== filters.supplier) return false;
-      if (filters.status && r.statusId !== filters.status) return false;
-      const day = (r.createdAt || "").slice(0, 10);
-      if (filters.dateFrom && day < filters.dateFrom) return false;
-      if (filters.dateTo && day > filters.dateTo) return false;
-      if (!matchBool(r.recordedInSystem, filters.recorded)) return false;
-      if (!matchBool(r.invoiceReceived, filters.invoice)) return false;
-      if (!matchBool(r.priceChecked, filters.price)) return false;
-      if (!term) return true;
-      return (
-        r.supplier?.name?.toLowerCase().includes(term) ||
-        r.receivedBy?.toLowerCase().includes(term) ||
-        r.observation?.toLowerCase().includes(term) ||
-        (r.invoiceNumber || "").toLowerCase().includes(term)
-      );
-    });
-  }, [rows, search, filters]);
+  const filtered = rows;
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
 
   return (
@@ -288,7 +311,7 @@ const ReceivalListPage = () => {
             Order Receival Confirmations
           </h1>
           <p className="text-sm text-muted-foreground mt-1 tnum">
-            {filtered.length} record{filtered.length !== 1 && "s"}
+            {total} record{total !== 1 && "s"}
           </p>
         </div>
         <Button
@@ -786,6 +809,34 @@ const ReceivalListPage = () => {
             </Card>
             );
           })}
+        </div>
+      )}
+
+      {!loading && total > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between gap-4 mt-6" data-testid="pagination-controls">
+          <span className="text-sm text-muted-foreground tnum">
+            Page {page} of {totalPages}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="h-10 rounded-sm"
+              data-testid="page-prev-btn"
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="h-10 rounded-sm"
+              data-testid="page-next-btn"
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
 

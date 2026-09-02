@@ -48,6 +48,9 @@ Archive tool to download + remove records older than 3 months.
   When a receival's 3 checklist toggles (recordedInSystem + invoiceReceived + priceChecked) are all ticked,
   status auto-changes to that status; un-ticking any reverts to the default status. Applies to Admin & Staff
   edits. Skipped when statusId is set explicitly in the same update. Config key: checklistCompleteStatusId.
+- Server-side pagination on GET /api/receivals (page/limit, default 20/page) with server-side search +
+  all filters. Search runs across the whole dataset (supplier name, receivedBy, observation, invoiceNumber),
+  not limited to a page. Response shape { items, total, page, limit }; list has Previous/Next controls.
 
 ## Backlog / Remaining (not requested / future)
 - P1: Security hardening — hash staff PINs, require JWT (not just PIN) on POST /receivals, rate-limit

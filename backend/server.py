@@ -9,6 +9,7 @@ import uuid
 import time
 import base64
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 
 import jwt
@@ -499,9 +500,76 @@ async def _enrich(rec: dict) -> dict:
 
 
 @api_router.get("/receivals")
-async def list_receivals(current=Depends(get_current_user)):
-    recs = await db.receivals.find({}, {"_id": 0}).sort("createdAt", -1).to_list(1000)
-    return [await _enrich(r) for r in recs]
+async def list_receivals(
+    current=Depends(get_current_user),
+    page: int = 1,
+    limit: int = 20,
+    search: Optional[str] = None,
+    supplierId: Optional[str] = None,
+    statusId: Optional[str] = None,
+    dateFrom: Optional[str] = None,
+    dateTo: Optional[str] = None,
+    recorded: Optional[str] = None,
+    invoice: Optional[str] = None,
+    price: Optional[str] = None,
+):
+    query = {}
+    if supplierId:
+        query["supplierId"] = supplierId
+    if statusId:
+        query["statusId"] = statusId
+
+    def bool_q(field, val):
+        if val == "true":
+            query[field] = True
+        elif val == "false":
+            query[field] = {"$ne": True}
+
+    bool_q("recordedInSystem", recorded)
+    bool_q("invoiceReceived", invoice)
+    bool_q("priceChecked", price)
+
+    created = {}
+    if dateFrom:
+        created["$gte"] = dateFrom
+    if dateTo:
+        try:
+            end = (datetime.fromisoformat(dateTo) + timedelta(days=1)).date().isoformat()
+            created["$lt"] = end
+        except Exception:
+            pass
+    if created:
+        query["createdAt"] = created
+
+    if search and search.strip():
+        rx = {"$regex": re.escape(search.strip()), "$options": "i"}
+        matched = await db.suppliers.find({"name": rx}, {"_id": 0, "id": 1}).to_list(1000)
+        sup_ids = [s["id"] for s in matched]
+        or_clauses = [{"receivedBy": rx}, {"observation": rx}, {"invoiceNumber": rx}]
+        if sup_ids:
+            or_clauses.append({"supplierId": {"$in": sup_ids}})
+        query["$or"] = or_clauses
+
+    page = max(1, page)
+    limit = max(1, min(limit, 100))
+    total = await db.receivals.count_documents(query)
+    recs = (
+        await db.receivals.find(query, {"_id": 0})
+        .sort("createdAt", -1)
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .to_list(limit)
+    )
+
+    suppliers = {s["id"]: s for s in await db.suppliers.find({}, {"_id": 0}).to_list(1000)}
+    statuses = {s["id"]: s for s in await db.statuses.find({}, {"_id": 0}).to_list(1000)}
+    locations = {l["id"]: l for l in await db.locations.find({}, {"_id": 0}).to_list(1000)}
+    for r in recs:
+        r["supplier"] = suppliers.get(r.get("supplierId"))
+        r["status"] = statuses.get(r.get("statusId"))
+        r["location"] = locations.get(r.get("locationId"))
+
+    return {"items": recs, "total": total, "page": page, "limit": limit}
 
 
 @api_router.get("/receivals/{rec_id}")
