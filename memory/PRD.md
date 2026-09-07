@@ -52,6 +52,25 @@ Archive tool to download + remove records older than 3 months.
   all filters. Search runs across the whole dataset (supplier name, receivedBy, observation, invoiceNumber),
   not limited to a page. Response shape { items, total, page, limit }; list has Previous/Next controls.
 
+## Implemented (2026-09 update) — Purchase Orders + CPIS integration
+- New admin-only Purchase Orders module (nav "Orders"). Talks to external CPIS product-core API
+  (base https://product-core-5.emergent.host/api, header X-API-Key). Env: CPIS_BASE_URL, CPIS_API_KEY,
+  CPIS_SOURCE_SYSTEM (backend/.env).
+- CPIS product sync: POST /api/cpis/sync pulls all products into db.cpis_products (manual "Sync CPIS
+  products" button). GET /api/cpis/status (count + lastSync). GET /api/cpis/products?query= local search
+  (name/sku/brand). GET /api/cpis/products/{id}/packs live-fetches packs from CPIS.
+- Supplier-wise pack config & pricing (db.supplier_pack_configs, keyed supplierId+packId):
+  unitsPerLayer, unitsPerPallet, packPrice. Per-unit price = packPrice / pack.unit_quantity auto-computed
+  and ALSO stored against the product's 1-unit "each" pack (derivedFromPackId).
+- Purchase Orders (db.purchase_orders): auto PO number PO-000X (counter in config), supplier, lines
+  (product+pack+qty+price+pallet cfg), totals computed server-side. CRUD GET/POST/PUT/DELETE
+  /api/purchase-orders. Saving a PO also upserts supplier-pack-configs for its lines.
+- Close PO: POST /api/purchase-orders/{id}/close { invoiceNumber (required), linkedReceivalId? }.
+  Sets status=closed, optionally links a receival (auto-fills that receival's invoiceNumber +
+  invoiceReceived=true), and posts a POSITIVE goods receipt to CPIS (POST /stock/receipts) per line with
+  headers X-API-Key, Idempotency-Key (per line), X-Source-System. Closed POs are read-only.
+- Testing: 15/15 backend pytest + full frontend E2E, 100% pass (iteration_12.json). No functional bugs.
+
 ## Backlog / Remaining (not requested / future)
 - P1: Security hardening — hash staff PINs, require JWT (not just PIN) on POST /receivals, rate-limit
   /verify-pin, set explicit CORS origin.

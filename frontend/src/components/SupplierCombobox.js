@@ -21,18 +21,20 @@ const SupplierCombobox = ({
   testid = "supplier-combobox",
   allowClear = false,
   className = "",
+  disabled = false,
 }) => {
   const [open, setOpen] = useState(false);
   const selected = suppliers.find((s) => s.id === value);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={(o) => !disabled && setOpen(o)}>
       <PopoverTrigger asChild>
         <button
           type="button"
           role="combobox"
+          disabled={disabled}
           data-testid={testid}
-          className={`flex items-center justify-between h-12 w-full rounded-sm border border-input bg-background px-3 text-sm ${className}`}
+          className={`flex items-center justify-between h-12 w-full rounded-sm border border-input bg-background px-3 text-sm disabled:opacity-60 disabled:cursor-not-allowed ${className}`}
         >
           <span className={selected ? "" : "text-muted-foreground"}>
             {selected ? selected.name : placeholder}

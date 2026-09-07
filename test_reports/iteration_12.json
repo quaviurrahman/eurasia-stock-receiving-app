@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 12 - Purchase Orders + CPIS integration. Executed 15/15 backend pytest cases (100% pass) and full frontend UI flow via Playwright. Verified: admin-only route guard (staff redirected from /purchase-orders to /), CPIS sync (311 products), status/last-sync display, product search by name ('mushroom') and SKU ('freveg20'), product pack drill-down, supplier pack config persistence with per-unit price calc, PO auto numbering (PO-0004 created), pack-price/qty/units-per-layer/units-per-pallet editing with live per-unit & line & grand totals, empty-invoice close blocked, close with invoice sets status=closed + posts positive receipt to CPIS (receiptsFailed=0, accepted=true), closed POs disable inputs, PUT on closed PO returns 400, closing already-closed PO returns 400, deletion works. All CPIS side-effects were reversed (POST /stock/movements -1) and test POs deleted.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/purchase-orders/{id}/close", "issue": "Backend does not enforce a non-empty invoiceNumber (empty string is accepted). Only frontend blocks it. Pydantic model uses invoiceNumber: str which lets '' through. Consider min_length=1 or trim+check server-side."},
+      {"endpoint": "POST /api/supplier-pack-configs", "issue": "Uses CPIS live GET /products/{id} synchronously inside every save (to derive the 1-unit each pack). Adds ~200-500ms latency per line and hard-couples save to CPIS availability. Consider caching packs in db.cpis_products at sync time to avoid the round trip."},
+      {"endpoint": "POST /api/cpis/sync", "issue": "No lock; concurrent syncs can double-process. Idempotent via upsert but wastes CPIS quota."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PurchaseOrderEditPage close dialog", "issues": ["When invoice is empty and user clicks 'Close & post receipt', a toast shows but the field itself has no red border / error hint - relies purely on toast. Minor UX gap."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12_purchase_orders.py",
+    "/app/test_reports/pytest/iter12_results.xml"
+  ],
+  "action_items": [
+    "Consider adding server-side validation: reject empty invoiceNumber on POST /api/purchase-orders/{id}/close (frontend already blocks; belt-and-braces).",
+    "Optional: cache each product's packs during CPIS sync so supplier-pack-config save doesn't call CPIS per request.",
+    "Optional: highlight the invoice input in red when close is attempted with empty value."
+  ],
+  "critical_code_review_comments": [
+    "server.py hit 1200 lines - candidate for splitting (auth, receivals, PO, CPIS modules).",
+    "PurchaseOrderEditPage state uses a shared 'state' fixture pattern for tests - fine. Frontend PurchaseOrderEditPage.js at 625 lines is at the edge; product-picker dialog can be extracted for maintainability.",
+    "close_purchase_order posts real inventory to live CPIS - there is no dry-run / staging mode. For safer QA, an env flag CPIS_DRY_RUN could short-circuit cpis_post and record a mocked receipt.",
+    "_next_po_number is not atomic across mongo shards but is fine with single replica; find_one_and_update with $inc + upsert works. Consider explicit collection e.g. counters.",
+    "In list_purchase_orders and list_supplier_pack_configs the projection excludes _id which is good; totals recomputed in _enrich_po instead of storing - fine for now.",
+    "CORS_ORIGINS='*' with allow_credentials=True is spec-illegal (browsers ignore credentials), non-blocking but should be tightened."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12_purchase_orders.py"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (all requested flows)"},
+  "test_credentials": "admin@eurasia.com / admin123 ; Staff PIN 1234",
+  "seed_data_creation": "Created transient PO(s) during tests. All were deleted after run. Any +1 CPIS stock movements were reversed with -1 via POST /stock/movements. No linked receivals were modified via UI (kept 'No link'); backend test also reset any touched receival's invoiceNumber back to '' when a link was made.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite is /app/backend/tests/test_iteration12_purchase_orders.py - single class TestCpisPurchaseOrderFlow shares state so it must run on one xdist worker (loadscope handles this). Frontend testids verified: sync-cpis-btn, new-po-btn, po-supplier, po-notes, add-product-btn, product-search-input, product-search-submit, product-result-<id>, add-pack-<id>, po-line-qty-<idx>, po-line-price-<idx>, po-line-layer-<idx>, po-line-pallet-<idx>, po-line-perunit-<idx>, po-line-total-<idx>, po-grand-total, po-save-btn, po-close-btn, close-invoice-input, close-receival-select, close-confirm. IMPORTANT: closing a PO fires REAL positive inventory to CPIS live - use quantityPacks=1 and reverse via POST https://product-core-5.emergent.host/api/stock/movements with quantity='-1', bucket=SELLABLE, reason=DISPATCH.",
+  "rca of the issue": "No functional bug found. Only two design-level notes: (1) backend accepts empty invoiceNumber on close - frontend blocks it so no user impact, but recommend Pydantic constraint; (2) supplier-pack-config save synchronously calls CPIS to derive the 1-unit pack, adding latency and CPIS coupling on every save."
+}

@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { ClipboardList, PlusSquare, Settings, LogOut, UserRound, LayoutDashboard } from "lucide-react";
+import { ClipboardList, PlusSquare, Settings, LogOut, UserRound, LayoutDashboard, ShoppingCart } from "lucide-react";
 
 const NavBtn = ({ active, onClick, icon: Icon, label, testid }) => (
   <button
@@ -26,6 +26,7 @@ const Layout = () => {
     { to: "/new", label: "New", icon: PlusSquare, testid: "nav-new" },
   ];
   if (isAdmin) {
+    nav.push({ to: "/purchase-orders", label: "Orders", icon: ShoppingCart, testid: "nav-purchase-orders" });
     nav.push({ to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testid: "nav-dashboard" });
     nav.push({ to: "/settings", label: "Admin", icon: Settings, testid: "nav-settings" });
   }

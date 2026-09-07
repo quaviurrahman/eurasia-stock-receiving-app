@@ -10,6 +10,8 @@ import NewReceivalPage from "@/pages/NewReceivalPage";
 import ReceivalDetailsPage from "@/pages/ReceivalDetailsPage";
 import DashboardPage from "@/pages/DashboardPage";
 import SettingsPage from "@/pages/SettingsPage";
+import PurchaseOrdersPage from "@/pages/PurchaseOrdersPage";
+import PurchaseOrderEditPage from "@/pages/PurchaseOrderEditPage";
 
 const Protected = ({ children }) => {
   const { user } = useAuth();
@@ -60,6 +62,22 @@ function App() {
                 element={
                   <AdminOnly>
                     <SettingsPage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="purchase-orders"
+                element={
+                  <AdminOnly>
+                    <PurchaseOrdersPage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="purchase-orders/:id"
+                element={
+                  <AdminOnly>
+                    <PurchaseOrderEditPage />
                   </AdminOnly>
                 }
               />

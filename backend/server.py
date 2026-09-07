@@ -39,6 +39,10 @@ STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https
 STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 
+CPIS_BASE_URL = (os.environ.get("CPIS_BASE_URL") or "").rstrip("/")
+CPIS_API_KEY = os.environ.get("CPIS_API_KEY")
+CPIS_SOURCE_SYSTEM = os.environ.get("CPIS_SOURCE_SYSTEM", "EURASIA_INTAKE")
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -112,6 +116,30 @@ def save_base64_image(base64_data: str, prefix: str = "img") -> Optional[str]:
     path = f"{APP_NAME}/{prefix}/{uuid.uuid4()}.{ext}"
     result = put_object(path, raw, content_type)
     return result["path"]
+
+
+# ---------------------------------------------------------------------------
+# CPIS (product-core) client
+# ---------------------------------------------------------------------------
+def cpis_headers(extra: dict = None) -> dict:
+    h = {"X-API-Key": CPIS_API_KEY, "Content-Type": "application/json"}
+    if extra:
+        h.update(extra)
+    return h
+
+
+def cpis_get(path: str, params: dict = None):
+    resp = requests.get(f"{CPIS_BASE_URL}{path}", headers=cpis_headers(), params=params or {}, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def cpis_post(path: str, payload: dict, extra_headers: dict = None):
+    resp = requests.post(
+        f"{CPIS_BASE_URL}{path}", headers=cpis_headers(extra_headers), json=payload, timeout=60
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +285,46 @@ class MediaUpdate(BaseModel):
     addSignatures: List[str] = []
     addSignedByNames: List[str] = []
     removeSignaturePaths: List[str] = []
+
+
+class SupplierPackConfigInput(BaseModel):
+    supplierId: str
+    productId: str
+    packId: str
+    packName: Optional[str] = None
+    packShortCode: Optional[str] = None
+    unitQuantity: float = 1
+    baseUnit: Optional[str] = None
+    unitsPerLayer: Optional[float] = None
+    unitsPerPallet: Optional[float] = None
+    packPrice: Optional[float] = None
+
+
+class POLine(BaseModel):
+    productId: str
+    sku: Optional[str] = None
+    productName: Optional[str] = None
+    packId: str
+    packName: Optional[str] = None
+    packShortCode: Optional[str] = None
+    unitQuantity: float = 1
+    baseUnit: Optional[str] = None
+    quantityPacks: float = 0
+    packPrice: Optional[float] = None
+    perUnitPrice: Optional[float] = None
+    unitsPerLayer: Optional[float] = None
+    unitsPerPallet: Optional[float] = None
+
+
+class PurchaseOrderInput(BaseModel):
+    supplierId: Optional[str] = None
+    notes: str = ""
+    lines: List[POLine] = []
+
+
+class PurchaseOrderClose(BaseModel):
+    invoiceNumber: str
+    linkedReceivalId: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -771,6 +839,318 @@ async def archive_delete(current=Depends(require_admin)):
     cutoff = _cutoff_iso()
     result = await db.receivals.delete_many({"createdAt": {"$lt": cutoff}})
     return {"deleted": result.deleted_count}
+
+
+# ---------------------------------------------------------------------------
+# CPIS product sync & search
+# ---------------------------------------------------------------------------
+@api_router.post("/cpis/sync")
+async def cpis_sync(current=Depends(require_admin)):
+    if not CPIS_API_KEY or not CPIS_BASE_URL:
+        raise HTTPException(status_code=400, detail="CPIS not configured")
+    synced = 0
+    offset = 0
+    limit = 100
+    total = None
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        while True:
+            data = cpis_get("/products", {"limit": limit, "offset": offset})
+            items = data.get("items", [])
+            total = data.get("total", 0)
+            for p in items:
+                doc = {
+                    "productId": p.get("product_id"),
+                    "sku": p.get("sku"),
+                    "name": p.get("name"),
+                    "brandName": p.get("brand_name") or (p.get("brand") or {}).get("name"),
+                    "baseUnit": p.get("base_unit"),
+                    "storageType": p.get("storage_type"),
+                    "status": p.get("status"),
+                    "packCount": p.get("pack_count"),
+                    "totalStock": p.get("total_stock"),
+                    "syncedAt": now,
+                }
+                await db.cpis_products.update_one(
+                    {"productId": doc["productId"]}, {"$set": doc}, upsert=True
+                )
+                synced += 1
+            offset += limit
+            if not items or offset >= (total or 0):
+                break
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CPIS sync failed: {e}")
+    await db.config.update_one({"key": "app"}, {"$set": {"cpisLastSync": now, "cpisProductCount": synced}}, upsert=True)
+    return {"synced": synced, "total": total, "lastSync": now}
+
+
+@api_router.get("/cpis/status")
+async def cpis_status(current=Depends(require_admin)):
+    cfg = await db.config.find_one({"key": "app"}, {"_id": 0}) or {}
+    count = await db.cpis_products.count_documents({})
+    return {"lastSync": cfg.get("cpisLastSync"), "productCount": count, "configured": bool(CPIS_API_KEY)}
+
+
+@api_router.get("/cpis/products")
+async def cpis_products(query: str = "", limit: int = 25, current=Depends(require_admin)):
+    q = {}
+    if query and query.strip():
+        rx = {"$regex": re.escape(query.strip()), "$options": "i"}
+        q = {"$or": [{"name": rx}, {"sku": rx}, {"brandName": rx}]}
+    limit = max(1, min(limit, 100))
+    items = await db.cpis_products.find(q, {"_id": 0}).limit(limit).to_list(limit)
+    total = await db.cpis_products.count_documents(q)
+    return {"items": items, "total": total}
+
+
+@api_router.get("/cpis/products/{product_id}/packs")
+async def cpis_product_packs(product_id: str, current=Depends(require_admin)):
+    try:
+        data = cpis_get(f"/products/{product_id}")
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CPIS fetch failed: {e}")
+    packs = [
+        {
+            "packId": p.get("pack_id"),
+            "name": p.get("name"),
+            "shortCode": p.get("short_code"),
+            "unitQuantity": p.get("unit_quantity"),
+            "unitOfMeasure": p.get("unit_of_measure"),
+        }
+        for p in data.get("packs", [])
+    ]
+    return {"productId": product_id, "baseUnit": data.get("base_unit"), "packs": packs}
+
+
+# ---------------------------------------------------------------------------
+# Supplier-wise pack configuration & pricing
+# ---------------------------------------------------------------------------
+def _per_unit_price(pack_price, unit_quantity):
+    if pack_price is None:
+        return None
+    try:
+        uq = float(unit_quantity or 1) or 1
+        return round(float(pack_price) / uq, 4)
+    except Exception:
+        return None
+
+
+@api_router.get("/supplier-pack-configs")
+async def list_supplier_pack_configs(
+    supplierId: Optional[str] = None, productId: Optional[str] = None, current=Depends(require_admin)
+):
+    q = {}
+    if supplierId:
+        q["supplierId"] = supplierId
+    if productId:
+        q["productId"] = productId
+    return await db.supplier_pack_configs.find(q, {"_id": 0}).to_list(2000)
+
+
+@api_router.post("/supplier-pack-configs")
+async def save_supplier_pack_config(data: SupplierPackConfigInput, current=Depends(require_admin)):
+    per_unit = _per_unit_price(data.packPrice, data.unitQuantity)
+    doc = data.model_dump()
+    doc["perUnitPrice"] = per_unit
+    doc["id"] = str(uuid.uuid4())
+    doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    existing = await db.supplier_pack_configs.find_one({"supplierId": data.supplierId, "packId": data.packId})
+    if existing:
+        doc["id"] = existing["id"]
+        await db.supplier_pack_configs.update_one(
+            {"supplierId": data.supplierId, "packId": data.packId}, {"$set": doc}
+        )
+    else:
+        await db.supplier_pack_configs.insert_one(doc)
+
+    # Also persist the derived per-unit price against this product's 1-unit ("each") pack.
+    if per_unit is not None:
+        try:
+            packs = cpis_get(f"/products/{data.productId}").get("packs", [])
+        except Exception:
+            packs = []
+        unit_pack = next((p for p in packs if float(p.get("unit_quantity") or 0) == 1), None)
+        if unit_pack and unit_pack.get("pack_id") != data.packId:
+            each_doc = {
+                "supplierId": data.supplierId,
+                "productId": data.productId,
+                "packId": unit_pack.get("pack_id"),
+                "packName": unit_pack.get("name"),
+                "packShortCode": unit_pack.get("short_code"),
+                "unitQuantity": 1,
+                "baseUnit": data.baseUnit,
+                "unitsPerLayer": None,
+                "unitsPerPallet": None,
+                "packPrice": per_unit,
+                "perUnitPrice": per_unit,
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+                "derivedFromPackId": data.packId,
+            }
+            ex = await db.supplier_pack_configs.find_one(
+                {"supplierId": data.supplierId, "packId": unit_pack.get("pack_id")}
+            )
+            if ex:
+                each_doc["id"] = ex["id"]
+                await db.supplier_pack_configs.update_one(
+                    {"supplierId": data.supplierId, "packId": unit_pack.get("pack_id")}, {"$set": each_doc}
+                )
+            else:
+                each_doc["id"] = str(uuid.uuid4())
+                await db.supplier_pack_configs.insert_one(each_doc)
+
+    doc.pop("_id", None)
+    return doc
+
+
+# ---------------------------------------------------------------------------
+# Purchase Orders
+# ---------------------------------------------------------------------------
+async def _next_po_number() -> str:
+    cfg = await db.config.find_one_and_update(
+        {"key": "po_counter"}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
+    )
+    seq = (cfg or {}).get("seq", 1)
+    return f"PO-{seq:04d}"
+
+
+async def _enrich_po(po: dict) -> dict:
+    supplier = await db.suppliers.find_one({"id": po.get("supplierId")}, {"_id": 0}) if po.get("supplierId") else None
+    po["supplier"] = supplier
+    for ln in po.get("lines", []):
+        ln["lineTotal"] = round((ln.get("packPrice") or 0) * (ln.get("quantityPacks") or 0), 2)
+    po["total"] = round(sum(l.get("lineTotal", 0) for l in po.get("lines", [])), 2)
+    return po
+
+
+@api_router.get("/purchase-orders")
+async def list_purchase_orders(current=Depends(require_admin)):
+    pos = await db.purchase_orders.find({}, {"_id": 0}).sort("createdAt", -1).to_list(1000)
+    return [await _enrich_po(p) for p in pos]
+
+
+@api_router.get("/purchase-orders/{po_id}")
+async def get_purchase_order(po_id: str, current=Depends(require_admin)):
+    po = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
+    if not po:
+        raise HTTPException(status_code=404, detail="Not found")
+    return await _enrich_po(po)
+
+
+@api_router.post("/purchase-orders")
+async def create_purchase_order(data: PurchaseOrderInput, current=Depends(require_admin)):
+    lines = []
+    for ln in data.lines:
+        d = ln.model_dump()
+        d["perUnitPrice"] = _per_unit_price(d.get("packPrice"), d.get("unitQuantity"))
+        lines.append(d)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "poNumber": await _next_po_number(),
+        "supplierId": data.supplierId,
+        "notes": data.notes,
+        "lines": lines,
+        "status": "open",
+        "invoiceNumber": None,
+        "linkedReceivalId": None,
+        "cpisReceipts": [],
+        "createdBy": current.get("name"),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.purchase_orders.insert_one(doc)
+    doc.pop("_id", None)
+    return await _enrich_po(doc)
+
+
+@api_router.put("/purchase-orders/{po_id}")
+async def update_purchase_order(po_id: str, data: PurchaseOrderInput, current=Depends(require_admin)):
+    po = await db.purchase_orders.find_one({"id": po_id})
+    if not po:
+        raise HTTPException(status_code=404, detail="Not found")
+    if po.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="Closed purchase orders cannot be edited")
+    lines = []
+    for ln in data.lines:
+        d = ln.model_dump()
+        d["perUnitPrice"] = _per_unit_price(d.get("packPrice"), d.get("unitQuantity"))
+        lines.append(d)
+    await db.purchase_orders.update_one(
+        {"id": po_id},
+        {"$set": {"supplierId": data.supplierId, "notes": data.notes, "lines": lines}},
+    )
+    po = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
+    return await _enrich_po(po)
+
+
+@api_router.delete("/purchase-orders/{po_id}")
+async def delete_purchase_order(po_id: str, current=Depends(require_admin)):
+    await db.purchase_orders.delete_one({"id": po_id})
+    return {"ok": True}
+
+
+@api_router.post("/purchase-orders/{po_id}/close")
+async def close_purchase_order(po_id: str, data: PurchaseOrderClose, current=Depends(require_admin)):
+    po = await db.purchase_orders.find_one({"id": po_id})
+    if not po:
+        raise HTTPException(status_code=404, detail="Not found")
+    if po.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="Already closed")
+    if not data.invoiceNumber or not data.invoiceNumber.strip():
+        raise HTTPException(status_code=400, detail="Invoice number is required")
+
+    # Link a receival confirmation and auto-populate its invoice number.
+    if data.linkedReceivalId:
+        rec = await db.receivals.find_one({"id": data.linkedReceivalId})
+        if not rec:
+            raise HTTPException(status_code=404, detail="Receival to link not found")
+        await db.receivals.update_one(
+            {"id": data.linkedReceivalId},
+            {
+                "$set": {"invoiceNumber": data.invoiceNumber, "invoiceReceived": True},
+                "$push": {"changeLog": _log(current, f"Linked to purchase order {po.get('poNumber')}, invoice #{data.invoiceNumber}")},
+            },
+        )
+
+    # Post a positive goods-receipt to CPIS for each line (idempotent per line).
+    receipts = []
+    for idx, ln in enumerate(po.get("lines", [])):
+        qty = ln.get("quantityPacks") or 0
+        if not ln.get("packId") or not qty:
+            continue
+        idem = f"{po_id}:{ln['packId']}:{idx}"
+        payload = {
+            "pack_id": ln["packId"],
+            "quantity": str(qty),
+            "reference": {"type": "purchase_order", "id": po.get("poNumber")},
+        }
+        try:
+            res = cpis_post(
+                "/stock/receipts",
+                payload,
+                {"Idempotency-Key": idem, "X-Source-System": CPIS_SOURCE_SYSTEM},
+            )
+            receipts.append({"packId": ln["packId"], "quantity": qty, "accepted": True, "result": res})
+        except requests.HTTPError as e:
+            body = e.response.text if e.response is not None else str(e)
+            receipts.append({"packId": ln["packId"], "quantity": qty, "accepted": False, "error": body})
+
+    await db.purchase_orders.update_one(
+        {"id": po_id},
+        {
+            "$set": {
+                "status": "closed",
+                "invoiceNumber": data.invoiceNumber,
+                "linkedReceivalId": data.linkedReceivalId,
+                "cpisReceipts": receipts,
+                "closedBy": current.get("name"),
+                "closedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+    po = await db.purchase_orders.find_one({"id": po_id}, {"_id": 0})
+    failed = [r for r in receipts if not r.get("accepted")]
+    result = await _enrich_po(po)
+    result["receiptsFailed"] = len(failed)
+    return result
 
 
 # ---------------------------------------------------------------------------
