@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -42,6 +42,7 @@ EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
 CPIS_BASE_URL = (os.environ.get("CPIS_BASE_URL") or "").rstrip("/")
 CPIS_API_KEY = os.environ.get("CPIS_API_KEY")
 CPIS_SOURCE_SYSTEM = os.environ.get("CPIS_SOURCE_SYSTEM", "EURASIA_INTAKE")
+CPIS_SITE_ID = os.environ.get("CPIS_SITE_ID", "MAIN-WAREHOUSE")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -194,6 +195,12 @@ async def require_admin(current=Depends(get_current_user)) -> dict:
     return current
 
 
+async def require_system_key(x_api_key: Optional[str] = Header(None, alias="X-API-Key")) -> bool:
+    if not x_api_key or x_api_key != CPIS_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key")
+    return True
+
+
 def _log(user: dict, action: str, changes: dict = None) -> dict:
     entry = {
         "at": datetime.now(timezone.utc).isoformat(),
@@ -310,6 +317,7 @@ class POLine(BaseModel):
     unitQuantity: float = 1
     baseUnit: Optional[str] = None
     quantityPacks: float = 0
+    receivedPacks: Optional[float] = None
     packPrice: Optional[float] = None
     perUnitPrice: Optional[float] = None
     unitsPerLayer: Optional[float] = None
@@ -922,6 +930,29 @@ async def cpis_product_packs(product_id: str, current=Depends(require_admin)):
     return {"productId": product_id, "baseUnit": data.get("base_unit"), "packs": packs}
 
 
+@api_router.get("/cpis/products/{product_id}/stock")
+async def cpis_product_stock(product_id: str, current=Depends(require_admin)):
+    try:
+        data = cpis_get(f"/stock/products/{product_id}", {"site_id": CPIS_SITE_ID})
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CPIS stock fetch failed: {e}")
+    return data
+
+
+@api_router.get("/cpis/products/{product_id}/sales")
+async def cpis_product_sales(
+    product_id: str, granularity: str = "weekly", periods: int = 6, current=Depends(require_admin)
+):
+    try:
+        data = cpis_get(
+            f"/analytics/products/{product_id}/sales",
+            {"granularity": granularity, "periods": periods},
+        )
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CPIS sales fetch failed: {e}")
+    return data
+
+
 # ---------------------------------------------------------------------------
 # Supplier-wise pack configuration & pricing
 # ---------------------------------------------------------------------------
@@ -1111,9 +1142,34 @@ async def close_purchase_order(po_id: str, data: PurchaseOrderClose, current=Dep
         )
 
     # Post a positive goods-receipt to CPIS for each line (idempotent per line).
+    # Received quantity is used when provided, else the ordered quantity.
     receipts = []
+    now_iso = datetime.now(timezone.utc).isoformat()
     for idx, ln in enumerate(po.get("lines", [])):
-        qty = ln.get("quantityPacks") or 0
+        ordered = ln.get("quantityPacks") or 0
+        received = ln.get("receivedPacks")
+        qty = received if received is not None else ordered
+        # Record a purchasing-price history point (based on price, independent of receipt qty).
+        if ln.get("packId") and ln.get("packPrice") is not None:
+            await db.price_history.insert_one(
+                {
+                    "id": str(uuid.uuid4()),
+                    "supplierId": po.get("supplierId"),
+                    "productId": ln.get("productId"),
+                    "sku": ln.get("sku"),
+                    "productName": ln.get("productName"),
+                    "packId": ln.get("packId"),
+                    "packName": ln.get("packName"),
+                    "packShortCode": ln.get("packShortCode"),
+                    "unitQuantity": ln.get("unitQuantity"),
+                    "baseUnit": ln.get("baseUnit"),
+                    "packPrice": ln.get("packPrice"),
+                    "perUnitPrice": ln.get("perUnitPrice"),
+                    "poId": po_id,
+                    "poNumber": po.get("poNumber"),
+                    "recordedAt": now_iso,
+                }
+            )
         if not ln.get("packId") or not qty:
             continue
         idem = f"{po_id}:{ln['packId']}:{idx}"
@@ -1151,6 +1207,89 @@ async def close_purchase_order(po_id: str, data: PurchaseOrderClose, current=Dep
     result = await _enrich_po(po)
     result["receiptsFailed"] = len(failed)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Purchasing price history & pricing API (system-to-system via X-API-Key)
+# ---------------------------------------------------------------------------
+async def _pack_pricing_summary(pack_id: str) -> dict:
+    hist = (
+        await db.price_history.find({"packId": pack_id}, {"_id": 0})
+        .sort("recordedAt", -1)
+        .to_list(1000)
+    )
+    if not hist:
+        return {
+            "packId": pack_id,
+            "found": False,
+            "latestPrice": None,
+            "latestPerUnitPrice": None,
+            "averageLast3": None,
+            "averageLast3PerUnit": None,
+            "previousPrice": None,
+            "count": 0,
+            "latestRecordedAt": None,
+        }
+    latest = hist[0]
+    last3 = [h["packPrice"] for h in hist[:3] if h.get("packPrice") is not None]
+    last3u = [h["perUnitPrice"] for h in hist[:3] if h.get("perUnitPrice") is not None]
+    meta = latest
+    return {
+        "packId": pack_id,
+        "found": True,
+        "productId": meta.get("productId"),
+        "sku": meta.get("sku"),
+        "productName": meta.get("productName"),
+        "packName": meta.get("packName"),
+        "packShortCode": meta.get("packShortCode"),
+        "unitQuantity": meta.get("unitQuantity"),
+        "baseUnit": meta.get("baseUnit"),
+        "latestPrice": latest.get("packPrice"),
+        "latestPerUnitPrice": latest.get("perUnitPrice"),
+        "previousPrice": hist[1].get("packPrice") if len(hist) > 1 else None,
+        "previousPerUnitPrice": hist[1].get("perUnitPrice") if len(hist) > 1 else None,
+        "averageLast3": round(sum(last3) / len(last3), 4) if last3 else None,
+        "averageLast3PerUnit": round(sum(last3u) / len(last3u), 4) if last3u else None,
+        "count": len(hist),
+        "latestRecordedAt": latest.get("recordedAt"),
+    }
+
+
+@api_router.get("/pricing/history")
+async def pricing_history(
+    packId: Optional[str] = None,
+    productId: Optional[str] = None,
+    supplierId: Optional[str] = None,
+    limit: int = 200,
+    current=Depends(require_admin),
+):
+    q = {}
+    if packId:
+        q["packId"] = packId
+    if productId:
+        q["productId"] = productId
+    if supplierId:
+        q["supplierId"] = supplierId
+    limit = max(1, min(limit, 1000))
+    items = await db.price_history.find(q, {"_id": 0}).sort("recordedAt", -1).limit(limit).to_list(limit)
+    summary = await _pack_pricing_summary(packId) if packId else None
+    return {"items": items, "summary": summary}
+
+
+# --- Exposed to other systems (X-API-Key auth, reuses the CPIS system key) ---
+@api_router.get("/pricing/packs/{pack_id}")
+async def pricing_pack(pack_id: str, _auth=Depends(require_system_key)):
+    return await _pack_pricing_summary(pack_id)
+
+
+class PricingBatchInput(BaseModel):
+    packIds: List[str] = []
+
+
+@api_router.post("/pricing/batch")
+async def pricing_batch(data: PricingBatchInput, _auth=Depends(require_system_key)):
+    items = [await _pack_pricing_summary(pid) for pid in data.packIds]
+    return {"items": items}
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 13 tested pricing exposure API (X-API-Key auth), CPIS stock/sales admin proxies, PO receiving progress + price-history end-to-end, PO Print button, Pricing page + API Guide navigation, Trend & stock panel, weekly/monthly toggle, empty-invoice close validation, and short-badge behavior. 12/12 backend pytest tests pass. All frontend flows work end-to-end. Cleanup executed: created POs deleted, CPIS positive receipt reversed via /stock/movements, price_history docs removed. No leftover test data (only pre-existing PO-0006 open remains).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PO Edit -> Trend & Stock panel", "issues": ["Sales trend bar chart appears visually empty (no bars rendered) even though data reports 'total 12 packs'. Check bar-scaling / max value calc when there's a single dominant value or if bars have zero height due to CSS."]},
+      {"screen": "PO Edit -> Received (packs) input", "issues": ["React console warnings: 'value prop should not be null' and 'A component is changing an uncontrolled input to be controlled'. The received input value initializes as null. Use empty string instead of null to avoid controlled/uncontrolled flip."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration13_pricing_and_receiving.py",
+    "/app/test_reports/pytest/iter13.xml"
+  ],
+  "action_items": [
+    "(minor) Fix Received input controlled/uncontrolled React warning by defaulting to '' instead of null.",
+    "(minor) Verify sales-trend bar visualization renders bars (heights computed via total pack counts). Currently the chart labels/legend show but no visible bars in the panel."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1359 lines - consider splitting (pricing, purchase_orders, cpis proxies into separate routers).",
+    "close_purchase_order records price_history unconditionally on each close; if a PO is somehow closed twice (currently blocked), duplicate entries could appear. Guarded correctly today by status check.",
+    "Pricing exposure API is public via X-API-Key: rate-limiting is not implemented; ok for internal system-to-system but worth noting.",
+    "In-app API Guide page correctly exposes X-API-Key and both endpoints; base URL text is present."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration13_pricing_and_receiving.py"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (all flows verified)"},
+  "test_credentials": "admin@eurasia.com / admin123 (Admin tab). Staff PIN 1234.",
+  "seed_data_creation": "Created + deleted 2 POs during backend tests; created 1 CPIS positive receipt (3 units of pack a1021b15) then reversed via /stock/movements DISPATCH; deleted price_history for PO-0009. Frontend testing used the existing pre-created PO-0010 (also cleaned).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reusable pytest at /app/backend/tests/test_iteration13_pricing_and_receiving.py. It parallelizes via xdist -> state fixture is per-worker; auto-cleanup only runs on the worker that owns the PO id. If any test PO leaks, DELETE /api/purchase-orders/{id} then reverse CPIS via POST https://product-core-5.emergent.host/api/stock/movements with X-API-Key=cpis_live_b816c49c3d904926ab099562e275cc2cae5e007e and negative quantity. Confirmed: POST /api/pricing/batch preserves order and returns found:false for unknown packIds; GET /api/pricing/packs/{id} returns full summary shape.",
+  "rca of the issue": "N/A - no functional bugs found. Minor UX/Console-warning items only."
+}

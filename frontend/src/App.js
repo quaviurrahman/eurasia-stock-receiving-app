@@ -12,6 +12,8 @@ import DashboardPage from "@/pages/DashboardPage";
 import SettingsPage from "@/pages/SettingsPage";
 import PurchaseOrdersPage from "@/pages/PurchaseOrdersPage";
 import PurchaseOrderEditPage from "@/pages/PurchaseOrderEditPage";
+import PricingPage from "@/pages/PricingPage";
+import ApiGuidePage from "@/pages/ApiGuidePage";
 
 const Protected = ({ children }) => {
   const { user } = useAuth();
@@ -78,6 +80,22 @@ function App() {
                 element={
                   <AdminOnly>
                     <PurchaseOrderEditPage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="pricing"
+                element={
+                  <AdminOnly>
+                    <PricingPage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="pricing/api-guide"
+                element={
+                  <AdminOnly>
+                    <ApiGuidePage />
                   </AdminOnly>
                 }
               />

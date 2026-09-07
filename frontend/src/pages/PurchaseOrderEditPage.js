@@ -34,6 +34,8 @@ import {
   PackagePlus,
   Layers,
   Boxes,
+  LineChart,
+  Printer,
 } from "lucide-react";
 
 const money = (n) => `£${(Number(n) || 0).toFixed(2)}`;
@@ -72,6 +74,34 @@ const PurchaseOrderEditPage = () => {
   const [invoiceError, setInvoiceError] = useState(false);
   const [receivals, setReceivals] = useState([]);
   const [closing, setClosing] = useState(false);
+
+  // per-line CPIS trend & stock insight
+  const [openInsight, setOpenInsight] = useState(null);
+  const [insight, setInsight] = useState({}); // idx -> { loading, stock, sales, granularity }
+
+  const loadInsight = async (idx, line, granularity = "weekly") => {
+    setOpenInsight((cur) => (cur === idx && !granularity ? null : idx));
+    setInsight((s) => ({ ...s, [idx]: { ...(s[idx] || {}), loading: true, granularity } }));
+    try {
+      const [stk, sal] = await Promise.all([
+        api.get(`/cpis/products/${line.productId}/stock`),
+        api.get(`/cpis/products/${line.productId}/sales`, { params: { granularity, periods: 6 } }),
+      ]);
+      setInsight((s) => ({ ...s, [idx]: { loading: false, stock: stk.data, sales: sal.data, granularity } }));
+    } catch {
+      setInsight((s) => ({ ...s, [idx]: { loading: false, error: true, granularity } }));
+      toast.error("Could not load CPIS trend/stock");
+    }
+  };
+
+  const toggleInsight = (idx, line) => {
+    if (openInsight === idx) {
+      setOpenInsight(null);
+    } else {
+      setOpenInsight(idx);
+      if (!insight[idx]) loadInsight(idx, line, "weekly");
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -153,6 +183,7 @@ const PurchaseOrderEditPage = () => {
         unitQuantity: pack.unitQuantity || 1,
         baseUnit: product.baseUnit,
         quantityPacks: 1,
+        receivedPacks: "",
         packPrice: cfg?.packPrice ?? "",
         unitsPerLayer: cfg?.unitsPerLayer ?? "",
         unitsPerPallet: cfg?.unitsPerPallet ?? "",
@@ -185,6 +216,7 @@ const PurchaseOrderEditPage = () => {
       ...l,
       unitQuantity: Number(l.unitQuantity) || 1,
       quantityPacks: num(l.quantityPacks) || 0,
+      receivedPacks: num(l.receivedPacks),
       packPrice: num(l.packPrice),
       unitsPerLayer: num(l.unitsPerLayer),
       unitsPerPallet: num(l.unitsPerPallet),
@@ -257,6 +289,8 @@ const PurchaseOrderEditPage = () => {
     }
     setClosing(true);
     try {
+      // Persist any line edits (e.g. received quantities) before closing.
+      await api.put(`/purchase-orders/${poId}`, buildPayload());
       const { data } = await api.post(`/purchase-orders/${poId}/close`, {
         invoiceNumber: closeInvoice.trim(),
         linkedReceivalId: closeReceival === "none" ? null : closeReceival,
@@ -278,6 +312,60 @@ const PurchaseOrderEditPage = () => {
   };
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  const printPO = () => {
+    const supplierName = suppliers.find((s) => s.id === supplierId)?.name || "—";
+    const rows = lines
+      .map(
+        (l, i) => `<tr>
+          <td>${i + 1}</td>
+          <td>${l.productName || ""}<div class="muted">${l.sku || ""} · ${l.packName || ""}${l.packShortCode ? " · " + l.packShortCode : ""}</div></td>
+          <td class="r">${num(l.quantityPacks) || 0}</td>
+          <td class="r">${num(l.receivedPacks) === null ? "—" : num(l.receivedPacks)}</td>
+          <td class="r">${money(num(l.packPrice) || 0)}</td>
+          <td class="r">${perUnit(l) === null ? "—" : money(perUnit(l))}</td>
+          <td class="r">${money(lineTotal(l))}</td>
+        </tr>`
+      )
+      .join("");
+    const html = `<!doctype html><html><head><title>${poNumber || "Purchase Order"}</title>
+      <style>
+        *{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}
+        body{margin:32px;color:#111}
+        h1{margin:0 0 2px;font-size:24px}
+        .muted{color:#666;font-size:11px}
+        .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px}
+        .meta div{font-size:13px;margin-bottom:2px}
+        table{width:100%;border-collapse:collapse;margin-top:8px}
+        th,td{border:1px solid #ccc;padding:8px;font-size:12px;text-align:left;vertical-align:top}
+        th{background:#f2f2f2}
+        .r{text-align:right}
+        tfoot td{font-weight:bold;font-size:13px}
+        .note{margin-top:16px;font-size:12px;color:#333}
+      </style></head><body>
+      <div class="head">
+        <div><h1>EurasiaStockIntake</h1><div class="muted">Purchase Order</div></div>
+        <div class="meta" style="text-align:right">
+          <div><b>${poNumber || "(unsaved)"}</b></div>
+          <div>Status: ${status}</div>
+          ${invoiceNumber ? `<div>Invoice #: ${invoiceNumber}</div>` : ""}
+          <div>Date: ${new Date().toLocaleDateString()}</div>
+        </div>
+      </div>
+      <div class="meta"><div><b>Supplier:</b> ${supplierName}</div>${notes ? `<div><b>Notes:</b> ${notes}</div>` : ""}</div>
+      <table>
+        <thead><tr><th>#</th><th>Product</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">Pack price</th><th class="r">Per unit</th><th class="r">Line total</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="6" class="r">Grand total</td><td class="r">${money(grandTotal)}</td></tr></tfoot>
+      </table>
+      <div class="note">Generated by EurasiaStockIntake · ${new Date().toLocaleString()}</div>
+      <script>window.onload=function(){window.print();}</script>
+      </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) return toast.error("Allow pop-ups to print");
+    w.document.write(html);
+    w.document.close();
+  };
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -310,6 +398,14 @@ const PurchaseOrderEditPage = () => {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button
+            onClick={printPO}
+            variant="outline"
+            className="h-11 rounded-sm"
+            data-testid="po-print-btn"
+          >
+            <Printer size={16} className="mr-2" /> Print
+          </Button>
           {!closed && (
             <Button
               onClick={save}
@@ -385,33 +481,67 @@ const PurchaseOrderEditPage = () => {
             <Card key={idx} className="rounded-sm border-border p-4" data-testid={`po-line-${idx}`}>
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <div className="font-medium">{l.productName}</div>
+                  <div className="font-medium flex items-center gap-2">
+                    {l.productName}
+                    {num(l.receivedPacks) !== null && num(l.receivedPacks) < (num(l.quantityPacks) || 0) && (
+                      <Badge variant="destructive" className="rounded-sm text-[10px]" data-testid={`po-line-short-${idx}`}>
+                        SHORT {num(l.receivedPacks)}/{num(l.quantityPacks)}
+                      </Badge>
+                    )}
+                    {num(l.receivedPacks) !== null && num(l.receivedPacks) >= (num(l.quantityPacks) || 0) && (
+                      <Badge variant="secondary" className="rounded-sm text-[10px]">received</Badge>
+                    )}
+                  </div>
                   <div className="text-xs text-muted-foreground tnum">
                     {l.sku} · {l.packName} {l.packShortCode ? `· ${l.packShortCode}` : ""} · pack size{" "}
                     {l.unitQuantity} {l.baseUnit}
                   </div>
                 </div>
-                {!closed && (
-                  <button
-                    onClick={() => removeLine(idx)}
-                    className="text-destructive hover:bg-destructive/10 rounded-sm w-8 h-8 flex items-center justify-center shrink-0"
-                    data-testid={`po-line-remove-${idx}`}
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleInsight(idx, l)}
+                    className="h-8 rounded-sm"
+                    data-testid={`po-line-insight-${idx}`}
                   >
-                    <Trash2 size={15} />
-                  </button>
-                )}
+                    <LineChart size={14} className="mr-1" /> Trend & stock
+                  </Button>
+                  {!closed && (
+                    <button
+                      onClick={() => removeLine(idx)}
+                      className="text-destructive hover:bg-destructive/10 rounded-sm w-8 h-8 flex items-center justify-center"
+                      data-testid={`po-line-remove-${idx}`}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">Qty (packs)</Label>
                   <Input
                     type="number"
                     min="0"
-                    value={l.quantityPacks}
+                    value={l.quantityPacks ?? ""}
                     onChange={(e) => setLine(idx, { quantityPacks: e.target.value })}
                     className="h-10 rounded-sm mt-1 tnum"
                     disabled={closed}
                     data-testid={`po-line-qty-${idx}`}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Received</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={l.receivedPacks ?? ""}
+                    onChange={(e) => setLine(idx, { receivedPacks: e.target.value })}
+                    placeholder="—"
+                    className="h-10 rounded-sm mt-1 tnum"
+                    disabled={closed}
+                    data-testid={`po-line-received-${idx}`}
                   />
                 </div>
                 <div>
@@ -420,7 +550,7 @@ const PurchaseOrderEditPage = () => {
                     type="number"
                     min="0"
                     step="0.01"
-                    value={l.packPrice}
+                    value={l.packPrice ?? ""}
                     onChange={(e) => setLine(idx, { packPrice: e.target.value })}
                     className="h-10 rounded-sm mt-1 tnum"
                     disabled={closed}
@@ -434,7 +564,7 @@ const PurchaseOrderEditPage = () => {
                   <Input
                     type="number"
                     min="0"
-                    value={l.unitsPerLayer}
+                    value={l.unitsPerLayer ?? ""}
                     onChange={(e) => setLine(idx, { unitsPerLayer: e.target.value })}
                     className="h-10 rounded-sm mt-1 tnum"
                     disabled={closed}
@@ -448,7 +578,7 @@ const PurchaseOrderEditPage = () => {
                   <Input
                     type="number"
                     min="0"
-                    value={l.unitsPerPallet}
+                    value={l.unitsPerPallet ?? ""}
                     onChange={(e) => setLine(idx, { unitsPerPallet: e.target.value })}
                     className="h-10 rounded-sm mt-1 tnum"
                     disabled={closed}
@@ -466,6 +596,101 @@ const PurchaseOrderEditPage = () => {
                   </div>
                 </div>
               </div>
+
+              {openInsight === idx && (
+                <div className="mt-4 border-t border-border pt-4" data-testid={`po-line-insight-panel-${idx}`}>
+                  {insight[idx]?.loading ? (
+                    <p className="text-sm text-muted-foreground">Loading CPIS trend & stock…</p>
+                  ) : insight[idx]?.error ? (
+                    <p className="text-sm text-destructive">Could not load data from CPIS.</p>
+                  ) : (
+                    <div className="grid md:grid-cols-2 gap-5">
+                      <div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                          Live stock (CPIS)
+                        </div>
+                        <div className="tnum text-sm mb-2">
+                          Available:{" "}
+                          <span className="font-bold">
+                            {insight[idx]?.stock?.available} {insight[idx]?.stock?.base_unit}
+                          </span>
+                        </div>
+                        <div className="space-y-1">
+                          {(insight[idx]?.stock?.packs || []).map((pk) => (
+                            <div
+                              key={pk.pack_id}
+                              className={`flex justify-between text-xs tnum px-2 py-1 rounded-sm ${
+                                pk.pack_id === l.packId ? "bg-accent/10 font-medium" : "bg-secondary/50"
+                              }`}
+                            >
+                              <span>{pk.pack_name}</span>
+                              <span>{pk.available_packs_whole} packs</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            Sales trend
+                          </span>
+                          <div className="flex rounded-sm border border-border overflow-hidden text-xs">
+                            {["weekly", "monthly"].map((g) => (
+                              <button
+                                key={g}
+                                onClick={() => loadInsight(idx, l, g)}
+                                className={`px-2 py-1 capitalize ${
+                                  insight[idx]?.granularity === g
+                                    ? "bg-primary text-primary-foreground"
+                                    : "hover:bg-secondary"
+                                }`}
+                                data-testid={`po-line-gran-${g}-${idx}`}
+                              >
+                                {g}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        {(() => {
+                          const series = insight[idx]?.sales?.series || [];
+                          const packOf = (bucket) =>
+                            (bucket.by_pack || []).find((b) => b.pack_id === l.packId);
+                          const vals = series.map((s) => Number(packOf(s)?.quantity_packs || 0));
+                          const max = Math.max(1, ...vals);
+                          return series.length === 0 ? (
+                            <p className="text-xs text-muted-foreground">No sales in window.</p>
+                          ) : (
+                            <div className="flex items-end gap-1" style={{ height: 96 }}>
+                              {series.map((s, i) => {
+                                const h = vals[i] > 0 ? Math.max(6, (vals[i] / max) * 78) : 0;
+                                return (
+                                  <div
+                                    key={i}
+                                    className="flex-1 flex flex-col items-center justify-end gap-1 h-full"
+                                    title={`${s.label}: ${vals[i]} packs`}
+                                  >
+                                    <span className="text-[9px] tnum text-muted-foreground">{vals[i] ? vals[i] : ""}</span>
+                                    <div className="w-full bg-accent/80 rounded-t-sm" style={{ height: h }} />
+                                    <span className="text-[9px] text-muted-foreground tnum whitespace-nowrap">
+                                      {s.label.slice(-3)}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                        <div className="text-[11px] text-muted-foreground mt-1 tnum">
+                          Sold this pack ({insight[idx]?.granularity}): total{" "}
+                          {(insight[idx]?.sales?.totals?.by_pack || []).find((b) => b.pack_id === l.packId)
+                            ?.quantity_packs_whole ?? 0}{" "}
+                          packs
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </Card>
           ))}
           <div className="flex justify-end pr-1">

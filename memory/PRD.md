@@ -71,6 +71,22 @@ Archive tool to download + remove records older than 3 months.
   headers X-API-Key, Idempotency-Key (per line), X-Source-System. Closed POs are read-only.
 - Testing: 15/15 backend pytest + full frontend E2E, 100% pass (iteration_12.json). No functional bugs.
 
+## Implemented (2026-09 update) — Receiving progress, PO print, pricing history & CPIS insights
+- Receiving progress: each PO line has a "Received (packs)" input; SHORT badge when received < ordered.
+  On close, CPIS goods-receipt posts the RECEIVED qty (falls back to ordered qty when blank).
+- PO Print: "Print" button opens a formatted, emailable PO sheet (new window → print/PDF).
+- Purchasing price history (db.price_history): a point is recorded per line each time a PO is closed
+  (supplier, pack, packPrice, perUnitPrice, poNumber, date). New admin "Pricing" page (search product →
+  pack) shows latest vs previous price with higher/lower highlight, average of last 3, trend bar chart +
+  history table.
+- Pricing API for other systems (X-API-Key = the CPIS system key): GET /api/pricing/packs/{packId} and
+  POST /api/pricing/batch { packIds:[] } → latest/previous price, averageLast3, per-unit variants, count.
+  Documented on in-app API Guide page (/pricing/api-guide) linked from Pricing.
+- CPIS insights per PO line: "Trend & stock" button shows live per-pack stock (GET
+  /api/cpis/products/{id}/stock) and a weekly/monthly sales bar chart (GET /api/cpis/products/{id}/sales).
+- Testing: 12/12 backend pytest + full frontend E2E, 100% pass (iteration_13.json). All CPIS side-effects
+  reversed. Fixed post-test: bar-chart px heights + null-input React warnings.
+
 ## Backlog / Remaining (not requested / future)
 - P1: Security hardening — hash staff PINs, require JWT (not just PIN) on POST /receivals, rate-limit
   /verify-pin, set explicit CORS origin.
