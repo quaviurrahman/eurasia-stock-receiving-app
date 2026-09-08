@@ -118,17 +118,31 @@ const NewReceivalPage = () => {
         label: s.label || "",
         entries: (s.entries || []).map((n) => Number(n)),
       })),
-      base64Images: images,
+      // Photos are uploaded separately (below) to stay under proxy body limits.
+      base64Images: [],
       base64Signatures: allSigs.map((s) => s.data),
       signedByNames: allSigs.map((s) => s.signedBy),
     };
 
     try {
-      await api.post("/receivals", payload);
-      toast.success("Receival confirmed");
+      const { data: rec } = await api.post("/receivals", payload);
+      // Upload photos one at a time so a single large body never exceeds ingress limits.
+      let failed = 0;
+      for (const img of images) {
+        try {
+          await api.post(`/receivals/${rec.id}/media`, { addImages: [img] });
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed > 0) {
+        toast.warning(`Receival saved, but ${failed} photo(s) failed to upload.`);
+      } else {
+        toast.success("Receival confirmed");
+      }
       navigate("/");
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Failed. Check your PIN.");
+      toast.error(err.response?.data?.detail || err.message || "Failed to save receival");
     } finally {
       setSaving(false);
     }

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 14 tested (A) the photo-upload bug fix on New Receival and (B) the new price-alert data flow on Purchase Orders. The frontend bug fix is VERIFIED CORRECT: submitting a New Receival with an attached photo now returns HTTP 200 for POST /api/receivals (create-first-without-images) and the misleading 'Check your PIN' / 'PIN not correct' toast NEVER appears — the user is redirected to the list and the receival is persisted. HOWEVER, photo storage itself is currently BROKEN in this preview env: POST /api/receivals/{id}/media returns 500 because the Emergent object-storage upstream (https://integrations.emergentagent.com/objstore/...) returns 402 Payment Required for WRITE operations. Reads of existing images still work (GET /api/files/{path} returns 200). This is an infra/billing issue, not a code regression — the frontend now correctly surfaces the real failure (warning toast 'Receival saved, but N photo(s) failed to upload'), which is exactly what the fix was designed to do. Price-alert backend flow is 100% verified: creating & closing a PO records a price_history row at the entered packPrice, /pricing/history returns the item with correct summary.latestPrice, and empty history is returned for unknown packs (so no alert renders).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/receivals/{id}/media", "issue": "Returns 500 because upstream object storage (https://integrations.emergentagent.com/objstore/api/v1/storage/objects/eurasia-receivals/photos/...) responds 402 Payment Required to PUT/write requests. Reads (GET) still work. Blocks ALL new photo (and new signature) persistence app-wide. Impacts both New Receival photo flow AND legacy inline base64Images path. Requires an infra/billing fix outside the app code.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "New Receival submit with photos", "issue": "Because object storage is 402 for writes (see backend critical), the photo grid renders locally and the receival is saved, but the image never lands in the receival document. Frontend surfaces this correctly as a 'Receival saved, but N photo(s) failed to upload' warning toast — no misleading PIN error.", "affected_selectors": ["[data-testid=camera-file-input]", "[data-testid=submit-receival]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14_photos_and_price_alerts.py",
+    "/app/test_reports/pytest/iter14.xml"
+  ],
+  "action_items": [
+    "URGENT/INFRA: The Emergent object-storage bucket 'eurasia-receivals' is refusing writes with 402 Payment Required (integrations.emergentagent.com/objstore). Ask the platform team to top-up / re-enable the bucket; without this, no new receival photos or signatures can be stored (this is completely independent from the photo bug fix, which is otherwise correct).",
+    "(optional hardening) In save_base64_image / put_object, catch requests.HTTPError and re-raise as HTTPException(status_code=502, detail='Object storage unavailable') so /media returns a clean 502 with a friendly message the frontend can display, instead of a bare 500 surfacing as 'Internal Server Error'."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1360 lines - still recommend splitting (receivals, POs, pricing routers).",
+    "NewReceivalPage.submit correctly creates the receival before uploading media so a single oversized POST body can't fail the whole request anymore; per-photo POST /receivals/{id}/media loop is the right shape.",
+    "CameraCapture.compressImage downsamples to max 1600px + JPEG 0.7 for both live-capture and file-input paths — good; consider showing the compressed size to the user for transparency.",
+    "PurchaseOrderEditPage: addLine and initial PO load both call GET /pricing/history to fetch priceRefLast / priceRefAvg — good. However /pricing/history is admin-only (require_admin). For staff users the fetch will 401 and be silently swallowed by the try/catch — so the red alert simply won't render for staff. That is probably intentional (POs are admin) but worth noting.",
+    "PO save() preserves priceRefLast/priceRefAvg on lines from prev state, so alerts persist after Save — verified via code review."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14_photos_and_price_alerts.py"
+  ],
+  "success_rate": {
+    "backend": "67% (4/6 pytest — 2 failures are ALL due to upstream object-storage 402, not app bugs)",
+    "frontend": "100% for the bug-fix assertion (no 'Check your PIN' toast; receival persists) — photo persistence blocked by upstream infra 402"
+  },
+  "test_credentials": "admin@eurasia.com / admin123 (Admin tab). Staff PIN 1234.",
+  "seed_data_creation": "During pytest: created 3 receivals (all deleted in teardown) + 1 PO (deleted, CPIS receipt reversed via /stock/movements DISPATCH, price_history row for its poNumber removed). During UI test: created 1 receival with observation TEST_iter14_photo_bug — deleted immediately after via DELETE /api/receivals/{id}.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Iteration_14 backend test file at /app/backend/tests/test_iteration14_photos_and_price_alerts.py includes: (1) create-receival-then-media flow for staff & admin (currently RED due to storage 402), (2) create-close-PO -> pricing/history assert (GREEN), (3) empty-history assert (GREEN). Once the object-storage bucket 'eurasia-receivals' is unblocked at the infra level, re-run and all 6 should be green. To confirm the infra is fixed without running the suite, POST any base64 image to /api/receivals/{id}/media and expect 200 (currently 500 with 'requests.exceptions.HTTPError: 402 Client Error: Payment Required'). Existing receival images still serve fine via GET /api/files/{path} (200).",
+  "rca of the issue": "RCA — POST /api/receivals/{id}/media 500: server.py put_object() (line 86) calls PUT https://integrations.emergentagent.com/objstore/api/v1/storage/objects/eurasia-receivals/photos/<uuid>.jpg and gets HTTP 402 Payment Required back. resp.raise_for_status() propagates as a plain requests.HTTPError → FastAPI returns 500. This is an INFRA/BILLING issue on the object-storage side (write path only — reads still 200). The app code change for the photo bug is correct and effective (misleading 'PIN not correct' toast eliminated, real error surfaced). Reproduction: POST /api/receivals then POST /api/receivals/{id}/media {addImages:[<any base64 image>]} — 500. Mitigation: unblock the eurasia-receivals bucket (billing/quota) and, as a hardening, translate storage errors to HTTP 502 in save_base64_image."
+}

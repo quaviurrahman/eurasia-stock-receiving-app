@@ -36,6 +36,7 @@ import {
   Boxes,
   LineChart,
   Printer,
+  AlertTriangle,
 } from "lucide-react";
 
 const money = (n) => `£${(Number(n) || 0).toFixed(2)}`;
@@ -114,7 +115,25 @@ const PurchaseOrderEditPage = () => {
           setStatus(data.status);
           setSupplierId(data.supplierId || "");
           setNotes(data.notes || "");
-          setLines(data.lines || []);
+          const enriched = await Promise.all(
+            (data.lines || []).map(async (ln) => {
+              try {
+                const { data: h } = await api.get("/pricing/history", {
+                  params: { packId: ln.packId, supplierId: data.supplierId || undefined, limit: 50 },
+                });
+                const items = h.items || [];
+                const l3 = items.slice(0, 3).map((i) => i.packPrice).filter((v) => v != null);
+                return {
+                  ...ln,
+                  priceRefLast: items.length ? items[0].packPrice ?? null : null,
+                  priceRefAvg: l3.length ? l3.reduce((a, b) => a + b, 0) / l3.length : null,
+                };
+              } catch {
+                return ln;
+              }
+            })
+          );
+          setLines(enriched);
           setInvoiceNumber(data.invoiceNumber || "");
           setLinkedReceivalId(data.linkedReceivalId || null);
           setPoId(data.id);
@@ -161,6 +180,8 @@ const PurchaseOrderEditPage = () => {
 
   const addLine = async (product, pack) => {
     let cfg = null;
+    let priceRefLast = null;
+    let priceRefAvg = null;
     if (supplierId) {
       try {
         const { data } = await api.get("/supplier-pack-configs", {
@@ -170,6 +191,19 @@ const PurchaseOrderEditPage = () => {
       } catch {
         /* ignore */
       }
+    }
+    try {
+      const { data } = await api.get("/pricing/history", {
+        params: { packId: pack.packId, supplierId: supplierId || undefined, limit: 50 },
+      });
+      const items = data.items || [];
+      if (items.length) {
+        priceRefLast = items[0].packPrice ?? null;
+        const l3 = items.slice(0, 3).map((i) => i.packPrice).filter((v) => v != null);
+        priceRefAvg = l3.length ? l3.reduce((a, b) => a + b, 0) / l3.length : null;
+      }
+    } catch {
+      /* ignore */
     }
     setLines((ls) => [
       ...ls,
@@ -187,6 +221,8 @@ const PurchaseOrderEditPage = () => {
         packPrice: cfg?.packPrice ?? "",
         unitsPerLayer: cfg?.unitsPerLayer ?? "",
         unitsPerPallet: cfg?.unitsPerPallet ?? "",
+        priceRefLast,
+        priceRefAvg,
       },
     ]);
     toast.success(`Added ${product.name} · ${pack.name}`);
@@ -259,7 +295,13 @@ const PurchaseOrderEditPage = () => {
         window.history.replaceState(null, "", `/purchase-orders/${saved.id}`);
       }
       await persistSupplierConfigs();
-      setLines(saved.lines || []);
+      setLines((prev) =>
+        (saved.lines || []).map((ln, i) => ({
+          ...ln,
+          priceRefLast: prev[i]?.priceRefLast ?? null,
+          priceRefAvg: prev[i]?.priceRefAvg ?? null,
+        }))
+      );
       toast.success(`${saved.poNumber} saved · supplier pricing stored`);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Save failed");
@@ -556,6 +598,24 @@ const PurchaseOrderEditPage = () => {
                     disabled={closed}
                     data-testid={`po-line-price-${idx}`}
                   />
+                  {(() => {
+                    const pp = num(l.packPrice);
+                    if (pp === null) return null;
+                    const aboveLast = l.priceRefLast != null && pp > l.priceRefLast;
+                    const aboveAvg = l.priceRefAvg != null && pp > l.priceRefAvg;
+                    if (!aboveLast && !aboveAvg) return null;
+                    return (
+                      <div
+                        className="mt-1 flex items-center gap-1 text-[11px] text-destructive font-medium"
+                        data-testid={`po-line-price-alert-${idx}`}
+                      >
+                        <AlertTriangle size={12} />
+                        {aboveLast && <span>above last {money(l.priceRefLast)}</span>}
+                        {aboveLast && aboveAvg && <span>·</span>}
+                        {aboveAvg && <span>above avg {money(l.priceRefAvg)}</span>}
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground flex items-center gap-1">

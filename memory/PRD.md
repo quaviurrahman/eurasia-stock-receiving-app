@@ -87,6 +87,21 @@ Archive tool to download + remove records older than 3 months.
 - Testing: 12/12 backend pytest + full frontend E2E, 100% pass (iteration_13.json). All CPIS side-effects
   reversed. Fixed post-test: bar-chart px heights + null-input React warnings.
 
+## Fixed (2026-09) — New Receival photo bug + Price Alerts
+- BUG (production): adding a photo on New Receival failed with a misleading "PIN not correct" toast. Root
+  cause: photos uploaded uncompressed inside one large JSON POST /api/receivals exceeded the ingress body
+  limit (~1MB) → request failed → generic "Check your PIN" fallback shown. FIX: (1) CameraCapture compresses
+  images client-side (max 1600px, JPEG q0.7) for both live capture and file upload; (2) NewReceivalPage
+  creates the receival first WITHOUT images, then uploads each photo individually via POST
+  /api/receivals/{id}/media; (3) the real error is now surfaced. Also hardened save_base64_image to return a
+  clean 502 ("Object storage unavailable…") instead of a bare 500. Verified by testing agent (iteration_14):
+  the misleading PIN error is eliminated and submit succeeds.
+  NOTE: object-storage WRITES currently return 402 Payment Required (Emergent Universal Key balance/quota),
+  which blocks actual photo persistence until the key balance is topped up.
+- Price Alerts: each PO line now flags in red when the entered pack price is above the supplier's last
+  purchase price and/or the average of the last 3 (refs from /api/pricing/history?packId=&supplierId=).
+  Verified (backend green + UI screenshot showing "above last / above avg").
+
 ## Backlog / Remaining (not requested / future)
 - P1: Security hardening — hash staff PINs, require JWT (not just PIN) on POST /receivals, rate-limit
   /verify-pin, set explicit CORS origin.

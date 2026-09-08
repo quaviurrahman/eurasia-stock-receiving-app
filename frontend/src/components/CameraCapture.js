@@ -11,6 +11,34 @@ import { toast } from "sonner";
  * - Falls back to a native file input with capture="environment" when
  *   getUserMedia is unavailable (older iOS, in-app browsers, denied perms)
  */
+/**
+ * Downscale + re-encode an image data URL to keep uploads small enough for
+ * proxy/ingress body limits. Returns a JPEG data URL.
+ */
+const compressImage = (dataUrl, maxDim = 1600, quality = 0.7) =>
+  new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        if (width >= height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+
 const CameraCapture = ({ images, onCapture, onRemove }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -63,7 +91,7 @@ const CameraCapture = ({ images, onCapture, onRemove }) => {
     }
   };
 
-  const capture = () => {
+  const capture = async () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) {
       toast.error("Camera still loading, try again.");
@@ -73,7 +101,8 @@ const CameraCapture = ({ images, onCapture, onRemove }) => {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-    onCapture(canvas.toDataURL("image/jpeg", 0.85));
+    const compressed = await compressImage(canvas.toDataURL("image/jpeg", 0.9));
+    onCapture(compressed);
     toast.success("Photo captured");
   };
 
@@ -81,7 +110,10 @@ const CameraCapture = ({ images, onCapture, onRemove }) => {
     const files = Array.from(e.target.files || []);
     files.forEach((file) => {
       const reader = new FileReader();
-      reader.onload = () => onCapture(reader.result);
+      reader.onload = async () => {
+        const compressed = await compressImage(reader.result);
+        onCapture(compressed);
+      };
       reader.readAsDataURL(file);
     });
     e.target.value = "";

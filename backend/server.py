@@ -115,7 +115,10 @@ def save_base64_image(base64_data: str, prefix: str = "img") -> Optional[str]:
     except Exception:
         return None
     path = f"{APP_NAME}/{prefix}/{uuid.uuid4()}.{ext}"
-    result = put_object(path, raw, content_type)
+    try:
+        result = put_object(path, raw, content_type)
+    except requests.HTTPError:
+        raise HTTPException(status_code=502, detail="Object storage unavailable — could not save image. Please try again shortly.")
     return result["path"]
 
 
