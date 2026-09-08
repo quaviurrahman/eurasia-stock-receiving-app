@@ -1,7 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { ClipboardList, PlusSquare, Settings, LogOut, UserRound, LayoutDashboard, ShoppingCart, TrendingUp } from "lucide-react";
+import { ClipboardList, PlusSquare, Settings, LogOut, UserRound, LayoutDashboard, ShoppingCart, TrendingUp, ListChecks } from "lucide-react";
 
 const NavBtn = ({ active, onClick, icon: Icon, label, testid }) => (
   <button
@@ -24,6 +24,7 @@ const Layout = () => {
   const nav = [
     { to: "/", label: "Receivals", icon: ClipboardList, testid: "nav-receivals" },
     { to: "/new", label: "New", icon: PlusSquare, testid: "nav-new" },
+    { to: "/to-order", label: "To Order", icon: ListChecks, testid: "nav-to-order" },
   ];
   if (isAdmin) {
     nav.push({ to: "/purchase-orders", label: "Orders", icon: ShoppingCart, testid: "nav-purchase-orders" });

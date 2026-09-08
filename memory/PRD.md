@@ -102,6 +102,25 @@ Archive tool to download + remove records older than 3 months.
   purchase price and/or the average of the last 3 (refs from /api/pricing/history?packId=&supplierId=).
   Verified (backend green + UI screenshot showing "above last / above avg").
 
+## Implemented (2026-09) — "To Order" page
+- New nav "To Order" (/to-order), accessible to BOTH staff and admin. Staff add products that need
+  ordering (same CPIS local product→pack search as PO) and can record a physical stock count per row.
+- Each row shows pack-size detail + pack IMAGE (proxied via public GET /api/cpis/images/{imageId} →
+  CPIS /images/{id}/content). Packs proxy now returns imageId per pack.
+- Admin marks items ordered singly or in BULK with one estimated delivery date (POST
+  /api/order-list/mark-ordered, admin-only). Ordered rows are highlighted GREEN and show the ETA.
+- Backend: db.order_list, GET/POST/PUT/DELETE /api/order-list; PUT updates physicalStock (staff allowed);
+  mark-ordered + delete are admin-only (staff → 403). addedBy uses the authenticated user's name.
+- Verified: testing agent backend 10/10; UI verified (add + image render, staff RBAC, bulk mark-ordered
+  green rows with shared ETA). Tester's "addedBy=Admin" note was a false alarm (that row was created in an
+  admin session; staff-created items correctly show "Warehouse Staff").
+
+## Known platform blocker (not app code)
+- Emergent Object Storage WRITES return 402 "Storage access suspended" (init + reads OK). This blocks
+  saving NEW receival photos/signatures. Per support: undocumented account-level suspension, unrelated to
+  credit balance — user must email support@emergent.sh with job ID + the 402 details. App now surfaces a
+  clean 502 "Object storage unavailable" message instead of crashing.
+
 ## Backlog / Remaining (not requested / future)
 - P1: Security hardening — hash staff PINs, require JWT (not just PIN) on POST /receivals, rate-limit
   /verify-pin, set explicit CORS origin.

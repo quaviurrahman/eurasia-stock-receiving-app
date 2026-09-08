@@ -14,6 +14,7 @@ import PurchaseOrdersPage from "@/pages/PurchaseOrdersPage";
 import PurchaseOrderEditPage from "@/pages/PurchaseOrderEditPage";
 import PricingPage from "@/pages/PricingPage";
 import ApiGuidePage from "@/pages/ApiGuidePage";
+import OrderListPage from "@/pages/OrderListPage";
 
 const Protected = ({ children }) => {
   const { user } = useAuth();
@@ -50,6 +51,7 @@ function App() {
             >
               <Route index element={<ReceivalListPage />} />
               <Route path="new" element={<NewReceivalPage />} />
+              <Route path="to-order" element={<OrderListPage />} />
               <Route path="receival/:id" element={<ReceivalDetailsPage />} />
               <Route
                 path="dashboard"

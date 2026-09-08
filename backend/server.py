@@ -338,6 +338,29 @@ class PurchaseOrderClose(BaseModel):
     linkedReceivalId: Optional[str] = None
 
 
+class OrderListItemInput(BaseModel):
+    productId: str
+    sku: Optional[str] = None
+    productName: Optional[str] = None
+    packId: str
+    packName: Optional[str] = None
+    packShortCode: Optional[str] = None
+    unitQuantity: float = 1
+    baseUnit: Optional[str] = None
+    imageId: Optional[str] = None
+    physicalStock: Optional[float] = None
+    notes: str = ""
+
+
+class PhysicalStockInput(BaseModel):
+    physicalStock: Optional[float] = None
+
+
+class MarkOrderedInput(BaseModel):
+    ids: List[str] = []
+    estimatedDelivery: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
@@ -927,10 +950,27 @@ async def cpis_product_packs(product_id: str, current=Depends(require_admin)):
             "shortCode": p.get("short_code"),
             "unitQuantity": p.get("unit_quantity"),
             "unitOfMeasure": p.get("unit_of_measure"),
+            "imageId": (p.get("images") or [{}])[0].get("image_id") if p.get("images") else None,
         }
         for p in data.get("packs", [])
     ]
     return {"productId": product_id, "baseUnit": data.get("base_unit"), "packs": packs}
+
+
+@api_router.get("/cpis/images/{image_id}")
+async def cpis_image(image_id: str):
+    try:
+        resp = requests.get(
+            f"{CPIS_BASE_URL}/images/{image_id}/content", headers=cpis_headers(), timeout=30
+        )
+        resp.raise_for_status()
+    except requests.HTTPError:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("Content-Type", "image/jpeg"),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @api_router.get("/cpis/products/{product_id}/stock")
@@ -1293,6 +1333,71 @@ class PricingBatchInput(BaseModel):
 async def pricing_batch(data: PricingBatchInput, _auth=Depends(require_system_key)):
     items = [await _pack_pricing_summary(pid) for pid in data.packIds]
     return {"items": items}
+
+
+# ---------------------------------------------------------------------------
+# To-order list (staff add items to order; admin marks ordered)
+# ---------------------------------------------------------------------------
+@api_router.get("/order-list")
+async def list_order_list(current=Depends(get_current_user)):
+    items = await db.order_list.find({}, {"_id": 0}).sort("addedAt", -1).to_list(2000)
+    # pending first, then ordered
+    items.sort(key=lambda x: (x.get("status") == "ordered", x.get("addedAt") or ""))
+    return items
+
+
+@api_router.post("/order-list")
+async def add_order_list(data: OrderListItemInput, current=Depends(get_current_user)):
+    doc = data.model_dump()
+    doc.update(
+        {
+            "id": str(uuid.uuid4()),
+            "status": "pending",
+            "estimatedDelivery": None,
+            "addedBy": current.get("name"),
+            "addedAt": datetime.now(timezone.utc).isoformat(),
+            "orderedBy": None,
+            "orderedAt": None,
+        }
+    )
+    await db.order_list.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.put("/order-list/{item_id}")
+async def update_order_list(item_id: str, data: PhysicalStockInput, current=Depends(get_current_user)):
+    item = await db.order_list.find_one({"id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    await db.order_list.update_one({"id": item_id}, {"$set": {"physicalStock": data.physicalStock}})
+    item = await db.order_list.find_one({"id": item_id}, {"_id": 0})
+    return item
+
+
+@api_router.post("/order-list/mark-ordered")
+async def mark_ordered(data: MarkOrderedInput, current=Depends(require_admin)):
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="No items selected")
+    now = datetime.now(timezone.utc).isoformat()
+    result = await db.order_list.update_many(
+        {"id": {"$in": data.ids}},
+        {
+            "$set": {
+                "status": "ordered",
+                "estimatedDelivery": data.estimatedDelivery,
+                "orderedBy": current.get("name"),
+                "orderedAt": now,
+            }
+        },
+    )
+    return {"updated": result.modified_count}
+
+
+@api_router.delete("/order-list/{item_id}")
+async def delete_order_list(item_id: str, current=Depends(require_admin)):
+    await db.order_list.delete_one({"id": item_id})
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
