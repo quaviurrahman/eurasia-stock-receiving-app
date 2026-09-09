@@ -362,6 +362,10 @@ class MarkOrderedInput(BaseModel):
     estimatedDelivery: Optional[str] = None
 
 
+class PackResolveInput(BaseModel):
+    shortCodes: List[str] = []
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
@@ -917,6 +921,36 @@ async def cpis_sync(current=Depends(require_admin)):
         raise HTTPException(status_code=502, detail=f"CPIS sync failed: {e}")
     await db.config.update_one({"key": "app"}, {"$set": {"cpisLastSync": now, "cpisProductCount": synced}}, upsert=True)
     return {"synced": synced, "total": total, "lastSync": now}
+
+
+@api_router.post("/cpis/packs/resolve")
+async def cpis_resolve_packs(data: PackResolveInput, current=Depends(get_current_user)):
+    codes = [c for c in (data.shortCodes or []) if c and c.strip()]
+    if not codes:
+        return {"items": []}
+    try:
+        res = cpis_post("/packs/resolve", {"short_codes": codes})
+    except requests.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"CPIS resolve failed: {e}")
+    items = []
+    for it in res.get("items", []):
+        p = it.get("product") or {}
+        pk = it.get("pack") or {}
+        items.append(
+            {
+                "shortCode": it.get("short_code"),
+                "found": bool(it.get("found")),
+                "productId": p.get("product_id"),
+                "sku": p.get("sku"),
+                "productName": p.get("name"),
+                "baseUnit": p.get("base_unit"),
+                "packId": pk.get("pack_id"),
+                "packName": pk.get("name"),
+                "packShortCode": pk.get("short_code"),
+                "unitQuantity": pk.get("unit_quantity"),
+            }
+        )
+    return {"items": items}
 
 
 @api_router.get("/cpis/status")

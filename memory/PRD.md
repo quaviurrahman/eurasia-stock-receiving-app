@@ -125,6 +125,13 @@ Archive tool to download + remove records older than 3 months.
 - Verified: testing agent iteration_16 100% (backend 10/10 + frontend). addedBy correctly attributes to the
   staff/admin who added the item.
 
+## Implemented (2026-09) — PO bulk CSV import
+- New Purchase Order page: "Import CSV" button (+ "Template" download) bulk-adds lines. CSV columns:
+  pack code, qty, received, pack price, units per layer, units per pallet (header names are matched
+  leniently). Rows are matched to CPIS products/packs by pack code via POST /api/cpis/packs/resolve
+  (proxy to CPIS /packs/resolve). Unknown codes are reported and skipped; found rows become PO lines with
+  all fields mapped (SHORT badge auto-applies when received < qty). Verified via curl + UI screenshot.
+
 ## Known platform blocker (not app code)
 - Emergent Object Storage WRITES return 402 "Storage access suspended" (init + reads OK). This blocks
   saving NEW receival photos/signatures. Per support: undocumented account-level suspension, unrelated to

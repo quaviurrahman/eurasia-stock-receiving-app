@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,8 @@ import {
   LineChart,
   Printer,
   AlertTriangle,
+  Upload,
+  FileDown,
 } from "lucide-react";
 
 const money = (n) => `£${(Number(n) || 0).toFixed(2)}`;
@@ -236,6 +238,144 @@ const PurchaseOrderEditPage = () => {
   const setLine = (idx, patch) =>
     setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   const removeLine = (idx) => setLines((ls) => ls.filter((_, i) => i !== idx));
+
+  // ---- Bulk CSV import (match rows by CPIS pack code) ----
+  const csvInputRef = useRef(null);
+  const [importing, setImporting] = useState(false);
+
+  const HKEY = (h) => h.toLowerCase().replace(/[\s_/\-.]/g, "");
+  const normHeader = (h) => {
+    const k = HKEY(h);
+    if (["packcode", "code", "shortcode", "productpackcode", "packshortcode"].includes(k)) return "packCode";
+    if (["qty", "quantity", "orderqty", "quantitypacks", "ordered"].includes(k)) return "qty";
+    if (["received", "receivedpacks", "recvd", "recv"].includes(k)) return "received";
+    if (["packprice", "price", "cost", "unitprice"].includes(k)) return "packPrice";
+    if (["unitsperlayer", "unitslayer", "perlayer", "layer"].includes(k)) return "unitsPerLayer";
+    if (["unitsperpallet", "unitspallet", "perpallet", "pallet"].includes(k)) return "unitsPerPallet";
+    return null;
+  };
+
+  const parseCsv = (text) => {
+    const rows = [];
+    let field = "";
+    let row = [];
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') {
+            field += '"';
+            i++;
+          } else inQuotes = false;
+        } else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ",") {
+        row.push(field);
+        field = "";
+      } else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field);
+        field = "";
+        if (row.some((v) => v.trim() !== "")) rows.push(row);
+        row = [];
+      } else field += c;
+    }
+    if (field !== "" || row.length) {
+      row.push(field);
+      if (row.some((v) => v.trim() !== "")) rows.push(row);
+    }
+    return rows;
+  };
+
+  const handleCsv = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const rows = parseCsv(text);
+      if (rows.length < 2) {
+        toast.error("CSV needs a header row and at least one data row");
+        return;
+      }
+      const headers = rows[0].map((h) => normHeader(h.trim()));
+      if (!headers.includes("packCode")) {
+        toast.error("CSV must have a 'pack code' column");
+        return;
+      }
+      const parsed = rows.slice(1).map((r) => {
+        const obj = {};
+        headers.forEach((h, i) => {
+          if (h) obj[h] = (r[i] ?? "").trim();
+        });
+        return obj;
+      }).filter((o) => o.packCode);
+
+      if (parsed.length === 0) {
+        toast.error("No rows with a pack code found");
+        return;
+      }
+
+      const codes = [...new Set(parsed.map((p) => p.packCode))];
+      const { data } = await api.post("/cpis/packs/resolve", { shortCodes: codes });
+      const map = {};
+      (data.items || []).forEach((it) => {
+        map[it.shortCode] = it;
+        map[it.shortCode.toUpperCase()] = it;
+      });
+
+      const newLines = [];
+      const notFound = [];
+      for (const p of parsed) {
+        const r = map[p.packCode] || map[p.packCode.toUpperCase()];
+        if (!r || !r.found) {
+          notFound.push(p.packCode);
+          continue;
+        }
+        newLines.push({
+          productId: r.productId,
+          sku: r.sku,
+          productName: r.productName,
+          packId: r.packId,
+          packName: r.packName,
+          packShortCode: r.packShortCode,
+          unitQuantity: r.unitQuantity || 1,
+          baseUnit: r.baseUnit,
+          quantityPacks: p.qty !== undefined && p.qty !== "" ? Number(p.qty) : 1,
+          receivedPacks: p.received !== undefined && p.received !== "" ? Number(p.received) : "",
+          packPrice: p.packPrice !== undefined && p.packPrice !== "" ? Number(p.packPrice) : "",
+          unitsPerLayer: p.unitsPerLayer !== undefined && p.unitsPerLayer !== "" ? Number(p.unitsPerLayer) : "",
+          unitsPerPallet: p.unitsPerPallet !== undefined && p.unitsPerPallet !== "" ? Number(p.unitsPerPallet) : "",
+          priceRefLast: null,
+          priceRefAvg: null,
+        });
+      }
+      if (newLines.length) setLines((ls) => [...ls, ...newLines]);
+      if (notFound.length) {
+        toast.warning(`Imported ${newLines.length} line(s). ${notFound.length} code(s) not found: ${notFound.slice(0, 5).join(", ")}${notFound.length > 5 ? "…" : ""}`);
+      } else {
+        toast.success(`Imported ${newLines.length} line(s) from CSV`);
+      }
+    } catch (err) {
+      toast.error("Could not import CSV — check the format");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const downloadTemplate = () => {
+    const csv =
+      "pack code,qty,received,pack price,units per layer,units per pallet\nMUSBX1,10,10,120,8,64\nDRPEP330,5,4,18,6,48\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "po_import_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const perUnit = (l) => {
     const pp = num(l.packPrice);
@@ -503,13 +643,40 @@ const PurchaseOrderEditPage = () => {
       <div className="flex items-center justify-between mb-2">
         <h2 className="font-head font-bold text-lg">Products</h2>
         {!closed && (
-          <Button
-            onClick={() => setPickOpen(true)}
-            className="h-10 rounded-sm bg-primary text-primary-foreground"
-            data-testid="add-product-btn"
-          >
-            <Plus size={16} className="mr-2" /> Add product
-          </Button>
+          <div className="flex items-center gap-2">
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleCsv}
+              className="hidden"
+              data-testid="csv-file-input"
+            />
+            <Button
+              onClick={downloadTemplate}
+              variant="ghost"
+              className="h-10 rounded-sm text-muted-foreground"
+              data-testid="csv-template-btn"
+            >
+              <FileDown size={16} className="mr-2" /> Template
+            </Button>
+            <Button
+              onClick={() => csvInputRef.current?.click()}
+              disabled={importing}
+              variant="outline"
+              className="h-10 rounded-sm"
+              data-testid="import-csv-btn"
+            >
+              <Upload size={16} className="mr-2" /> {importing ? "Importing…" : "Import CSV"}
+            </Button>
+            <Button
+              onClick={() => setPickOpen(true)}
+              className="h-10 rounded-sm bg-primary text-primary-foreground"
+              data-testid="add-product-btn"
+            >
+              <Plus size={16} className="mr-2" /> Add product
+            </Button>
+          </div>
         )}
       </div>
 
