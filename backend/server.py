@@ -348,6 +348,7 @@ class OrderListItemInput(BaseModel):
     unitQuantity: float = 1
     baseUnit: Optional[str] = None
     imageId: Optional[str] = None
+    cpisStock: Optional[float] = None
     physicalStock: Optional[float] = None
     notes: str = ""
 
@@ -926,7 +927,7 @@ async def cpis_status(current=Depends(require_admin)):
 
 
 @api_router.get("/cpis/products")
-async def cpis_products(query: str = "", limit: int = 25, current=Depends(require_admin)):
+async def cpis_products(query: str = "", limit: int = 25, current=Depends(get_current_user)):
     q = {}
     if query and query.strip():
         rx = {"$regex": re.escape(query.strip()), "$options": "i"}
@@ -938,7 +939,7 @@ async def cpis_products(query: str = "", limit: int = 25, current=Depends(requir
 
 
 @api_router.get("/cpis/products/{product_id}/packs")
-async def cpis_product_packs(product_id: str, current=Depends(require_admin)):
+async def cpis_product_packs(product_id: str, current=Depends(get_current_user)):
     try:
         data = cpis_get(f"/products/{product_id}")
     except requests.HTTPError as e:
@@ -974,7 +975,7 @@ async def cpis_image(image_id: str):
 
 
 @api_router.get("/cpis/products/{product_id}/stock")
-async def cpis_product_stock(product_id: str, current=Depends(require_admin)):
+async def cpis_product_stock(product_id: str, current=Depends(get_current_user)):
     try:
         data = cpis_get(f"/stock/products/{product_id}", {"site_id": CPIS_SITE_ID})
     except requests.HTTPError as e:
@@ -1349,11 +1350,15 @@ async def list_order_list(current=Depends(get_current_user)):
 @api_router.post("/order-list")
 async def add_order_list(data: OrderListItemInput, current=Depends(get_current_user)):
     doc = data.model_dump()
+    diff = None
+    if doc.get("physicalStock") is not None and doc.get("cpisStock") is not None:
+        diff = doc["physicalStock"] - doc["cpisStock"]
     doc.update(
         {
             "id": str(uuid.uuid4()),
             "status": "pending",
             "estimatedDelivery": None,
+            "stockDifference": diff,
             "addedBy": current.get("name"),
             "addedAt": datetime.now(timezone.utc).isoformat(),
             "orderedBy": None,
@@ -1370,7 +1375,12 @@ async def update_order_list(item_id: str, data: PhysicalStockInput, current=Depe
     item = await db.order_list.find_one({"id": item_id})
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
-    await db.order_list.update_one({"id": item_id}, {"$set": {"physicalStock": data.physicalStock}})
+    diff = None
+    if data.physicalStock is not None and item.get("cpisStock") is not None:
+        diff = data.physicalStock - item["cpisStock"]
+    await db.order_list.update_one(
+        {"id": item_id}, {"$set": {"physicalStock": data.physicalStock, "stockDifference": diff}}
+    )
     item = await db.order_list.find_one({"id": item_id}, {"_id": 0})
     return item
 

@@ -41,6 +41,7 @@ const OrderListPage = () => {
   const [searching, setSearching] = useState(false);
   const [activeProduct, setActiveProduct] = useState(null);
   const [packs, setPacks] = useState([]);
+  const [stockMap, setStockMap] = useState({});
   const [loadingPacks, setLoadingPacks] = useState(false);
 
   // mark-ordered dialog
@@ -82,9 +83,18 @@ const OrderListPage = () => {
     setActiveProduct(p);
     setLoadingPacks(true);
     setPacks([]);
+    setStockMap({});
     try {
-      const { data } = await api.get(`/cpis/products/${p.productId}/packs`);
-      setPacks(data.packs || []);
+      const [pk, stk] = await Promise.all([
+        api.get(`/cpis/products/${p.productId}/packs`),
+        api.get(`/cpis/products/${p.productId}/stock`).catch(() => ({ data: { packs: [] } })),
+      ]);
+      setPacks(pk.data.packs || []);
+      const m = {};
+      (stk.data.packs || []).forEach((x) => {
+        m[x.pack_id] = x.available_packs_whole;
+      });
+      setStockMap(m);
     } catch {
       toast.error("Could not load packs");
     } finally {
@@ -104,6 +114,7 @@ const OrderListPage = () => {
         unitQuantity: pack.unitQuantity || 1,
         baseUnit: product.baseUnit,
         imageId: pack.imageId || null,
+        cpisStock: stockMap[pack.packId] ?? null,
       });
       setItems((it) => [data, ...it]);
       toast.success(`Added ${product.name}`);
@@ -120,7 +131,8 @@ const OrderListPage = () => {
   const setStock = (id, v) => setItems((it) => it.map((x) => (x.id === id ? { ...x, physicalStock: v } : x)));
   const persistStock = async (id, v) => {
     try {
-      await api.put(`/order-list/${id}`, { physicalStock: v === "" ? null : Number(v) });
+      const { data } = await api.put(`/order-list/${id}`, { physicalStock: v === "" ? null : Number(v) });
+      setItems((it) => it.map((x) => (x.id === id ? data : x)));
     } catch {
       toast.error("Could not save stock count");
       load();
@@ -237,7 +249,9 @@ const OrderListPage = () => {
                 )}
                 <TableHead className="w-16">Image</TableHead>
                 <TableHead>Product / pack</TableHead>
+                <TableHead className="w-24">CPIS stock</TableHead>
                 <TableHead className="w-32">Physical stock</TableHead>
+                <TableHead className="w-24">Difference</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Est. delivery</TableHead>
                 <TableHead>Added by</TableHead>
@@ -284,6 +298,9 @@ const OrderListPage = () => {
                         {it.unitQuantity} {it.baseUnit}
                       </div>
                     </TableCell>
+                    <TableCell className="tnum" data-testid={`cpis-stock-${it.id}`}>
+                      {it.cpisStock ?? "—"}
+                    </TableCell>
                     <TableCell>
                       <Input
                         type="number"
@@ -295,6 +312,24 @@ const OrderListPage = () => {
                         className="h-9 rounded-sm tnum w-24"
                         data-testid={`stock-input-${it.id}`}
                       />
+                    </TableCell>
+                    <TableCell className="tnum" data-testid={`stock-diff-${it.id}`}>
+                      {it.stockDifference == null ? (
+                        "—"
+                      ) : (
+                        <span
+                          className={`font-medium ${
+                            it.stockDifference < 0
+                              ? "text-destructive"
+                              : it.stockDifference > 0
+                              ? "text-emerald-700"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {it.stockDifference > 0 ? "+" : ""}
+                          {it.stockDifference}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {ordered ? (
@@ -410,6 +445,11 @@ const OrderListPage = () => {
                               {pk.name}
                               <span className="text-xs text-muted-foreground ml-2 tnum">
                                 {pk.shortCode ? `${pk.shortCode} · ` : ""}size {pk.unitQuantity} {pk.unitOfMeasure}
+                                {stockMap[pk.packId] != null && (
+                                  <span className="ml-2 text-emerald-700 font-medium">
+                                    · in stock {stockMap[pk.packId]}
+                                  </span>
+                                )}
                               </span>
                             </span>
                           </span>

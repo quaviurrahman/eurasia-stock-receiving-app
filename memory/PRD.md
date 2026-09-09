@@ -115,6 +115,16 @@ Archive tool to download + remove records older than 3 months.
   green rows with shared ETA). Tester's "addedBy=Admin" note was a false alarm (that row was created in an
   admin session; staff-created items correctly show "Warehouse Staff").
 
+## Fixed (2026-09) — To Order: staff access + CPIS stock/difference
+- BUG: staff couldn't add products ("Admin access required") because CPIS read endpoints were admin-only.
+  Fixed: GET /api/cpis/products, /cpis/products/{id}/packs, /cpis/products/{id}/stock are now open to any
+  authenticated user (staff + admin). Sync stays admin-only; mark-ordered + delete stay admin-only.
+- Enhancement: the add-product dialog shows each pack's live CPIS stock ("in stock N"); each row stores the
+  CPIS stock (cpisStock) and shows CPIS stock + Physical stock + Difference (= physicalStock − cpisStock;
+  red when negative, green when positive). PUT recomputes the difference when physical stock changes.
+- Verified: testing agent iteration_16 100% (backend 10/10 + frontend). addedBy correctly attributes to the
+  staff/admin who added the item.
+
 ## Known platform blocker (not app code)
 - Emergent Object Storage WRITES return 402 "Storage access suspended" (init + reads OK). This blocks
   saving NEW receival photos/signatures. Per support: undocumented account-level suspension, unrelated to

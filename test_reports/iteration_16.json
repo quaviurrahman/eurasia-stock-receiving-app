@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 16: Verified staff-permission fix + CPIS stock/difference additions on the To-Order page. Backend: 10/10 pytest passed. Frontend: staff can add products (no 'Admin access required' error), pack list shows 'in stock N', row shows CPIS stock/Physical stock/Difference (green +, red -), physical stock persists across reload, staff cannot see mark-ordered/delete/checkbox controls, admin regression OK (add + mark-ordered + delete + bulk controls visible). Cleanup complete – page ends empty.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_order_list_staff.py",
+    "/app/test_reports/pytest/iteration16.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "OrderListPage.js is ~514 lines with search dialog, mark-ordered dialog, table, and persistStock all mixed – would benefit from splitting into sub-components (ProductPickerDialog, MarkOrderedDialog, OrderRow) for readability and testability.",
+    "server.py is 1478 lines – consider splitting into routers (auth, cpis, order_list, purchase_orders, receivals, pricing).",
+    "GET /order-list, POST /order-list, PUT /order-list/{id} are all open to any authenticated user; document explicitly that staff can edit ANY row's physicalStock (currently intended, but worth a note)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration16_order_list_staff.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@eurasia.com/admin123; Staff PIN 1234",
+  "seed_data_creation": "Created 1 staff-added row (STRAW MUSHROOMS HALVES, ambori14) with physicalStock=33 during flow; deleted via admin cleanup. Ended with 0 items.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To-Order + CPIS staff-access flow fully validated. All prior iteration_15 features still work (add, mark-ordered single & bulk with ETA, delete). Pytest file /app/backend/tests/test_iteration16_order_list_staff.py is safe to re-run (self-cleans). Note: CPIS upstream sometimes returns transient 502 via CDN – retry once if seen.",
+  "rca of the issue": "Root cause of prior bug: /api/cpis/products, /packs, /stock used Depends(require_admin) causing 403 for staff tokens. Fix (verified): switched to Depends(get_current_user); OrderListItemInput now accepts cpisStock; POST/PUT compute stockDifference = physicalStock - cpisStock. mark-ordered + DELETE remain admin-only."
+}
