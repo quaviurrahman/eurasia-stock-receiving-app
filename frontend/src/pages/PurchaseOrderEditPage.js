@@ -86,11 +86,12 @@ const PurchaseOrderEditPage = () => {
     setOpenInsight((cur) => (cur === idx && !granularity ? null : idx));
     setInsight((s) => ({ ...s, [idx]: { ...(s[idx] || {}), loading: true, granularity } }));
     try {
-      const [stk, sal] = await Promise.all([
+      const [stk, sal, oth] = await Promise.all([
         api.get(`/cpis/products/${line.productId}/stock`),
         api.get(`/cpis/products/${line.productId}/sales`, { params: { granularity, periods: 6 } }),
+        api.get(`/pack-other-suppliers`, { params: { packId: line.packId, excludeSupplierId: supplierId || undefined } }).catch(() => ({ data: { items: [] } })),
       ]);
-      setInsight((s) => ({ ...s, [idx]: { loading: false, stock: stk.data, sales: sal.data, granularity } }));
+      setInsight((s) => ({ ...s, [idx]: { loading: false, stock: stk.data, sales: sal.data, others: oth.data.items || [], granularity } }));
     } catch {
       setInsight((s) => ({ ...s, [idx]: { loading: false, error: true, granularity } }));
       toast.error("Could not load CPIS trend/stock");
@@ -105,6 +106,17 @@ const PurchaseOrderEditPage = () => {
       if (!insight[idx]) loadInsight(idx, line, "weekly");
     }
   };
+
+  useEffect(() => {
+    if (!supplierId) {
+      setFrequent([]);
+      return;
+    }
+    api
+      .get("/frequent-products", { params: { supplierId } })
+      .then((r) => setFrequent(r.data.items || []))
+      .catch(() => setFrequent([]));
+  }, [supplierId]);
 
   useEffect(() => {
     (async () => {
@@ -180,33 +192,46 @@ const PurchaseOrderEditPage = () => {
     }
   };
 
-  const addLine = async (product, pack) => {
-    let cfg = null;
-    let priceRefLast = null;
-    let priceRefAvg = null;
+  const [frequent, setFrequent] = useState([]);
+
+  const fetchLineMeta = async (productId, packId) => {
+    const meta = { priceRefLast: null, priceRefAvg: null, supplierCode: "", belowMin: false, minStock: null, available: null, packPriceCfg: null, layerCfg: null, palletCfg: null };
+    const calls = [
+      api.get("/pricing/history", { params: { packId, supplierId: supplierId || undefined, limit: 50 } }).then((r) => {
+        const items = r.data.items || [];
+        if (items.length) {
+          meta.priceRefLast = items[0].packPrice ?? null;
+          const l3 = items.slice(0, 3).map((i) => i.packPrice).filter((v) => v != null);
+          meta.priceRefAvg = l3.length ? l3.reduce((a, b) => a + b, 0) / l3.length : null;
+        }
+      }).catch(() => {}),
+      api.get("/min-levels/check", { params: { productId } }).then((r) => {
+        if (r.data.hasMin) {
+          meta.belowMin = !!r.data.belowMin;
+          meta.minStock = r.data.minStock;
+          meta.available = r.data.available;
+        }
+      }).catch(() => {}),
+    ];
     if (supplierId) {
-      try {
-        const { data } = await api.get("/supplier-pack-configs", {
-          params: { supplierId, productId: product.productId },
-        });
-        cfg = data.find((c) => c.packId === pack.packId) || null;
-      } catch {
-        /* ignore */
-      }
+      calls.push(
+        api.get("/supplier-pack-configs", { params: { supplierId, productId } }).then((r) => {
+          const cfg = (r.data || []).find((c) => c.packId === packId) || null;
+          meta.packPriceCfg = cfg?.packPrice ?? null;
+          meta.layerCfg = cfg?.unitsPerLayer ?? null;
+          meta.palletCfg = cfg?.unitsPerPallet ?? null;
+        }).catch(() => {}),
+        api.get("/supplier-products", { params: { supplierId, productId } }).then((r) => {
+          meta.supplierCode = (r.data || [])[0]?.supplierCode || "";
+        }).catch(() => {})
+      );
     }
-    try {
-      const { data } = await api.get("/pricing/history", {
-        params: { packId: pack.packId, supplierId: supplierId || undefined, limit: 50 },
-      });
-      const items = data.items || [];
-      if (items.length) {
-        priceRefLast = items[0].packPrice ?? null;
-        const l3 = items.slice(0, 3).map((i) => i.packPrice).filter((v) => v != null);
-        priceRefAvg = l3.length ? l3.reduce((a, b) => a + b, 0) / l3.length : null;
-      }
-    } catch {
-      /* ignore */
-    }
+    await Promise.all(calls);
+    return meta;
+  };
+
+  const addLine = async (product, pack) => {
+    const m = await fetchLineMeta(product.productId, pack.packId);
     setLines((ls) => [
       ...ls,
       {
@@ -220,11 +245,15 @@ const PurchaseOrderEditPage = () => {
         baseUnit: product.baseUnit,
         quantityPacks: 1,
         receivedPacks: "",
-        packPrice: cfg?.packPrice ?? "",
-        unitsPerLayer: cfg?.unitsPerLayer ?? "",
-        unitsPerPallet: cfg?.unitsPerPallet ?? "",
-        priceRefLast,
-        priceRefAvg,
+        packPrice: m.packPriceCfg ?? "",
+        unitsPerLayer: m.layerCfg ?? "",
+        unitsPerPallet: m.palletCfg ?? "",
+        supplierCode: m.supplierCode,
+        priceRefLast: m.priceRefLast,
+        priceRefAvg: m.priceRefAvg,
+        belowMin: m.belowMin,
+        minStock: m.minStock,
+        available: m.available,
       },
     ]);
     toast.success(`Added ${product.name} · ${pack.name}`);
@@ -233,6 +262,36 @@ const PurchaseOrderEditPage = () => {
     setResults([]);
     setActiveProduct(null);
     setPacks([]);
+  };
+
+  const addFromFrequent = async (f) => {
+    if (lines.some((l) => l.packId === f.packId)) return toast.info("Already on this order");
+    const m = await fetchLineMeta(f.productId, f.packId);
+    setLines((ls) => [
+      ...ls,
+      {
+        productId: f.productId,
+        sku: f.sku,
+        productName: f.productName,
+        packId: f.packId,
+        packName: f.packName,
+        packShortCode: f.packShortCode,
+        unitQuantity: f.unitQuantity || 1,
+        baseUnit: f.baseUnit,
+        quantityPacks: 1,
+        receivedPacks: "",
+        packPrice: m.packPriceCfg ?? "",
+        unitsPerLayer: m.layerCfg ?? "",
+        unitsPerPallet: m.palletCfg ?? "",
+        supplierCode: m.supplierCode,
+        priceRefLast: m.priceRefLast,
+        priceRefAvg: m.priceRefAvg,
+        belowMin: m.belowMin,
+        minStock: m.minStock,
+        available: m.available,
+      },
+    ]);
+    toast.success(`Added ${f.productName}`);
   };
 
   const setLine = (idx, patch) =>
@@ -402,8 +461,8 @@ const PurchaseOrderEditPage = () => {
 
   const persistSupplierConfigs = async () => {
     if (!supplierId) return;
-    await Promise.all(
-      lines
+    await Promise.all([
+      ...lines
         .filter((l) => num(l.packPrice) !== null || num(l.unitsPerLayer) !== null || num(l.unitsPerPallet) !== null)
         .map((l) =>
           api.post("/supplier-pack-configs", {
@@ -418,8 +477,19 @@ const PurchaseOrderEditPage = () => {
             unitsPerPallet: num(l.unitsPerPallet),
             packPrice: num(l.packPrice),
           })
-        )
-    );
+        ),
+      ...lines
+        .filter((l) => l.supplierCode && l.supplierCode.trim())
+        .map((l) =>
+          api.post("/supplier-products", {
+            supplierId,
+            productId: l.productId,
+            sku: l.sku,
+            productName: l.productName,
+            supplierCode: l.supplierCode.trim(),
+          })
+        ),
+    ]);
   };
 
   const save = async () => {
@@ -681,6 +751,30 @@ const PurchaseOrderEditPage = () => {
         )}
       </div>
 
+      {!closed && frequent.length > 0 && (
+        <Card className="rounded-sm border-border p-4 mb-3 bg-secondary/30" data-testid="frequent-products">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Frequently ordered from this supplier
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {frequent.map((f) => (
+              <button
+                key={f.packId}
+                onClick={() => addFromFrequent(f)}
+                className="px-3 py-1.5 rounded-sm border border-border bg-background hover:bg-accent/10 text-left"
+                data-testid={`frequent-${f.packId}`}
+              >
+                <span className="text-sm font-medium">{f.productName}</span>
+                <span className="block text-[11px] text-muted-foreground tnum">
+                  {f.packName} · ordered {f.count}× · last{" "}
+                  {f.lastOrderedAt ? new Date(f.lastOrderedAt).toLocaleDateString() : "—"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {lines.length === 0 ? (
         <Card className="rounded-sm border-border border-dashed p-8 text-center text-sm text-muted-foreground">
           No products yet. Click “Add product” to search CPIS.
@@ -700,6 +794,11 @@ const PurchaseOrderEditPage = () => {
                     )}
                     {num(l.receivedPacks) !== null && num(l.receivedPacks) >= (num(l.quantityPacks) || 0) && (
                       <Badge variant="secondary" className="rounded-sm text-[10px]">received</Badge>
+                    )}
+                    {l.belowMin && (
+                      <Badge variant="destructive" className="rounded-sm text-[10px]" data-testid={`po-line-belowmin-${idx}`}>
+                        LOW STOCK {l.available}/{l.minStock}
+                      </Badge>
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground tnum">
@@ -825,7 +924,7 @@ const PurchaseOrderEditPage = () => {
                 </div>
               </div>
 
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <label className="text-xs text-muted-foreground flex items-center gap-1">
                   Best before (batch)
                 </label>
@@ -840,6 +939,16 @@ const PurchaseOrderEditPage = () => {
                 <span className="text-[11px] text-muted-foreground">
                   required at receive for batch-tracked products
                 </span>
+                <span className="mx-1 text-border">|</span>
+                <label className="text-xs text-muted-foreground">Supplier code</label>
+                <Input
+                  value={l.supplierCode || ""}
+                  onChange={(e) => setLine(idx, { supplierCode: e.target.value })}
+                  placeholder="e.g. SUP-123"
+                  className="h-9 rounded-sm w-40"
+                  disabled={closed}
+                  data-testid={`po-line-suppliercode-${idx}`}
+                />
               </div>
 
               {openInsight === idx && (
@@ -964,6 +1073,23 @@ const PurchaseOrderEditPage = () => {
                             ?.quantity_packs_whole ?? 0}{" "}
                           packs
                         </div>
+                      </div>
+                    </div>
+                  )}
+                  {!insight[idx]?.loading && !insight[idx]?.error && (insight[idx]?.others || []).length > 0 && (
+                    <div className="mt-4 border-t border-border pt-3" data-testid={`po-line-others-${idx}`}>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                        Other suppliers' last purchase price
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-1">
+                        {(insight[idx]?.others || []).map((o) => (
+                          <div key={o.supplierId} className="flex justify-between text-xs px-2 py-1 rounded-sm bg-secondary/50">
+                            <span>{o.supplierName}</span>
+                            <span className="tnum">
+                              {money(o.packPrice)} · {o.recordedAt ? new Date(o.recordedAt).toLocaleDateString() : "—"}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}

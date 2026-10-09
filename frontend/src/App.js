@@ -15,6 +15,8 @@ import PurchaseOrderEditPage from "@/pages/PurchaseOrderEditPage";
 import PricingPage from "@/pages/PricingPage";
 import ApiGuidePage from "@/pages/ApiGuidePage";
 import OrderListPage from "@/pages/OrderListPage";
+import NeedsOrderingPage from "@/pages/NeedsOrderingPage";
+import CreditNotesPage from "@/pages/CreditNotesPage";
 
 const Protected = ({ children }) => {
   const { user } = useAuth();
@@ -98,6 +100,22 @@ function App() {
                 element={
                   <AdminOnly>
                     <ApiGuidePage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="needs-ordering"
+                element={
+                  <AdminOnly>
+                    <NeedsOrderingPage />
+                  </AdminOnly>
+                }
+              />
+              <Route
+                path="credit-notes"
+                element={
+                  <AdminOnly>
+                    <CreditNotesPage />
                   </AdminOnly>
                 }
               />

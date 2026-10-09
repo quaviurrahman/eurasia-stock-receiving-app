@@ -367,6 +367,59 @@ class PackResolveInput(BaseModel):
     shortCodes: List[str] = []
 
 
+class SupplierProductInput(BaseModel):
+    supplierId: str
+    productId: str
+    sku: Optional[str] = None
+    productName: Optional[str] = None
+    supplierCode: Optional[str] = None
+
+
+class BulkCostItem(BaseModel):
+    packId: str
+    productId: Optional[str] = None
+    sku: Optional[str] = None
+    productName: Optional[str] = None
+    packName: Optional[str] = None
+    packShortCode: Optional[str] = None
+    unitQuantity: float = 1
+    baseUnit: Optional[str] = None
+    packPrice: float
+
+
+class BulkCostInput(BaseModel):
+    supplierId: str
+    items: List[BulkCostItem] = []
+
+
+class MinLevelInput(BaseModel):
+    productId: str
+    sku: Optional[str] = None
+    productName: Optional[str] = None
+    minStock: float = 0
+
+
+class CreditNoteLine(BaseModel):
+    productId: Optional[str] = None
+    packId: Optional[str] = None
+    productName: Optional[str] = None
+    packName: Optional[str] = None
+    packShortCode: Optional[str] = None
+    unitQuantity: float = 1
+    baseUnit: Optional[str] = None
+    qtyPacks: Optional[float] = None
+    amount: float = 0
+
+
+class CreditNoteInput(BaseModel):
+    supplierId: str
+    type: str = "price_only"
+    reason: str = ""
+    note: str = ""
+    invoiceNumber: Optional[str] = None
+    lines: List[CreditNoteLine] = []
+
+
 # ---------------------------------------------------------------------------
 # Auth routes
 # ---------------------------------------------------------------------------
@@ -965,8 +1018,16 @@ async def cpis_status(current=Depends(require_admin)):
 async def cpis_products(query: str = "", limit: int = 25, current=Depends(get_current_user)):
     q = {}
     if query and query.strip():
-        rx = {"$regex": re.escape(query.strip()), "$options": "i"}
-        q = {"$or": [{"name": rx}, {"sku": rx}, {"brandName": rx}]}
+        term = query.strip()
+        rx = {"$regex": re.escape(term), "$options": "i"}
+        ors = [{"name": rx}, {"sku": rx}, {"brandName": rx}]
+        sp = await db.supplier_products.find(
+            {"supplierCode": {"$regex": re.escape(term), "$options": "i"}}, {"_id": 0, "productId": 1}
+        ).to_list(500)
+        pids = list({s["productId"] for s in sp if s.get("productId")})
+        if pids:
+            ors.append({"productId": {"$in": pids}})
+        q = {"$or": ors}
     limit = max(1, min(limit, 100))
     items = await db.cpis_products.find(q, {"_id": 0}).limit(limit).to_list(limit)
     total = await db.cpis_products.count_documents(q)
@@ -1444,6 +1505,246 @@ async def mark_ordered(data: MarkOrderedInput, current=Depends(require_admin)):
 @api_router.delete("/order-list/{item_id}")
 async def delete_order_list(item_id: str, current=Depends(require_admin)):
     await db.order_list.delete_one({"id": item_id})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: supplier codes, bulk cost, frequent products
+# ---------------------------------------------------------------------------
+@api_router.get("/supplier-products")
+async def list_supplier_products(
+    productId: Optional[str] = None, supplierId: Optional[str] = None, current=Depends(require_admin)
+):
+    q = {}
+    if productId:
+        q["productId"] = productId
+    if supplierId:
+        q["supplierId"] = supplierId
+    return await db.supplier_products.find(q, {"_id": 0}).to_list(2000)
+
+
+@api_router.post("/supplier-products")
+async def save_supplier_product(data: SupplierProductInput, current=Depends(require_admin)):
+    doc = data.model_dump()
+    doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    existing = await db.supplier_products.find_one({"supplierId": data.supplierId, "productId": data.productId})
+    if existing:
+        doc["id"] = existing["id"]
+        await db.supplier_products.update_one(
+            {"supplierId": data.supplierId, "productId": data.productId}, {"$set": doc}
+        )
+    else:
+        doc["id"] = str(uuid.uuid4())
+        await db.supplier_products.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.post("/supplier-pack-configs/bulk")
+async def bulk_supplier_pack_configs(data: BulkCostInput, current=Depends(require_admin)):
+    n = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for it in data.items:
+        per_unit = _per_unit_price(it.packPrice, it.unitQuantity)
+        doc = it.model_dump()
+        doc.update({"supplierId": data.supplierId, "perUnitPrice": per_unit, "updatedAt": now})
+        existing = await db.supplier_pack_configs.find_one({"supplierId": data.supplierId, "packId": it.packId})
+        if existing:
+            doc["id"] = existing["id"]
+            await db.supplier_pack_configs.update_one(
+                {"supplierId": data.supplierId, "packId": it.packId}, {"$set": doc}
+            )
+        else:
+            doc["id"] = str(uuid.uuid4())
+            await db.supplier_pack_configs.insert_one(doc)
+        n += 1
+    return {"updated": n}
+
+
+@api_router.get("/frequent-products")
+async def frequent_products(supplierId: str, current=Depends(require_admin)):
+    pos = await db.purchase_orders.find(
+        {"supplierId": supplierId}, {"_id": 0, "lines": 1, "createdAt": 1, "closedAt": 1}
+    ).to_list(2000)
+    agg = {}
+    for po in pos:
+        dt = po.get("closedAt") or po.get("createdAt")
+        for ln in po.get("lines", []):
+            pk = ln.get("packId")
+            if not pk:
+                continue
+            a = agg.setdefault(
+                pk,
+                {
+                    "productId": ln.get("productId"),
+                    "productName": ln.get("productName"),
+                    "sku": ln.get("sku"),
+                    "packId": pk,
+                    "packName": ln.get("packName"),
+                    "packShortCode": ln.get("packShortCode"),
+                    "unitQuantity": ln.get("unitQuantity"),
+                    "baseUnit": ln.get("baseUnit"),
+                    "count": 0,
+                    "lastOrderedAt": None,
+                },
+            )
+            a["count"] += 1
+            if dt and (a["lastOrderedAt"] is None or dt > a["lastOrderedAt"]):
+                a["lastOrderedAt"] = dt
+    items = sorted(agg.values(), key=lambda x: -x["count"])[:12]
+    return {"items": items}
+
+
+@api_router.get("/pack-other-suppliers")
+async def pack_other_suppliers(packId: str, excludeSupplierId: Optional[str] = None, current=Depends(require_admin)):
+    hist = await db.price_history.find({"packId": packId}, {"_id": 0}).sort("recordedAt", -1).to_list(1000)
+    sup_names = {s["id"]: s["name"] for s in await db.suppliers.find({}, {"_id": 0}).to_list(500)}
+    seen = {}
+    for h in hist:
+        sid = h.get("supplierId")
+        if not sid or sid == excludeSupplierId or sid in seen:
+            continue
+        seen[sid] = {
+            "supplierId": sid,
+            "supplierName": sup_names.get(sid, "—"),
+            "packPrice": h.get("packPrice"),
+            "perUnitPrice": h.get("perUnitPrice"),
+            "recordedAt": h.get("recordedAt"),
+        }
+    return {"items": list(seen.values())}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: min stock levels, needs-ordering, credit notes
+# ---------------------------------------------------------------------------
+@api_router.get("/min-levels")
+async def list_min_levels(current=Depends(require_admin)):
+    return await db.product_min_levels.find({}, {"_id": 0}).to_list(2000)
+
+
+@api_router.get("/min-levels/check")
+async def check_min_level(productId: str, current=Depends(get_current_user)):
+    m = await db.product_min_levels.find_one({"productId": productId}, {"_id": 0})
+    if not m:
+        return {"hasMin": False}
+    try:
+        s = cpis_get(f"/stock/products/{productId}", {"site_id": CPIS_SITE_ID})
+        avail = float(s.get("available") or 0)
+    except Exception:
+        avail = None
+    return {
+        "hasMin": True,
+        "minStock": m.get("minStock"),
+        "available": avail,
+        "belowMin": avail is not None and avail <= float(m.get("minStock") or 0),
+    }
+
+
+@api_router.post("/min-levels")
+async def save_min_level(data: MinLevelInput, current=Depends(require_admin)):
+    doc = data.model_dump()
+    doc["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    existing = await db.product_min_levels.find_one({"productId": data.productId})
+    if existing:
+        doc["id"] = existing["id"]
+        await db.product_min_levels.update_one({"productId": data.productId}, {"$set": doc})
+    else:
+        doc["id"] = str(uuid.uuid4())
+        await db.product_min_levels.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.delete("/min-levels/{product_id}")
+async def delete_min_level(product_id: str, current=Depends(require_admin)):
+    await db.product_min_levels.delete_one({"productId": product_id})
+    return {"ok": True}
+
+
+@api_router.get("/needs-ordering")
+async def needs_ordering(current=Depends(require_admin)):
+    mins = await db.product_min_levels.find({}, {"_id": 0}).to_list(2000)
+    if not mins:
+        return {"items": []}
+    stock = {}
+    try:
+        res = cpis_post("/stock/query", {"items": [{"product_id": m["productId"]} for m in mins]})
+        stock = {s.get("product_id"): s for s in res.get("items", [])}
+    except requests.HTTPError:
+        stock = {}
+    out = []
+    for m in mins:
+        s = stock.get(m["productId"], {})
+        avail = float(s.get("available") or 0) if s else 0
+        if avail <= float(m.get("minStock") or 0):
+            out.append({**m, "available": avail, "baseUnit": s.get("base_unit")})
+    return {"items": out}
+
+
+async def _next_number(key: str, prefix: str) -> str:
+    cfg = await db.config.find_one_and_update(
+        {"key": key}, {"$inc": {"seq": 1}}, upsert=True, return_document=True
+    )
+    return f"{prefix}-{(cfg or {}).get('seq', 1):04d}"
+
+
+@api_router.get("/credit-notes")
+async def list_credit_notes(current=Depends(require_admin)):
+    notes = await db.credit_notes.find({}, {"_id": 0}).sort("createdAt", -1).to_list(1000)
+    sup_names = {s["id"]: s["name"] for s in await db.suppliers.find({}, {"_id": 0}).to_list(500)}
+    for n in notes:
+        n["supplierName"] = sup_names.get(n.get("supplierId"), "—")
+    return notes
+
+
+@api_router.post("/credit-notes")
+async def create_credit_note(data: CreditNoteInput, current=Depends(require_admin)):
+    number = await _next_number("cn_counter", "CN")
+    now = datetime.now(timezone.utc).isoformat()
+    total = round(sum((l.amount or 0) for l in data.lines), 2)
+    doc = data.model_dump()
+    doc.update(
+        {
+            "id": str(uuid.uuid4()),
+            "number": number,
+            "totalAmount": total,
+            "createdAt": now,
+            "createdBy": current.get("name"),
+            "cpisMovements": [],
+        }
+    )
+    movements = []
+    if data.type == "return":
+        for idx, l in enumerate(data.lines):
+            if not l.packId or not l.qtyPacks:
+                continue
+            idem = f"cn:{doc['id']}:{l.packId}:{idx}"
+            payload = {
+                "pack_id": l.packId,
+                "quantity": str(-abs(l.qtyPacks)),
+                "bucket": "SELLABLE",
+                "reason": "DISPATCH",
+                "reference": {"type": "credit_note", "id": number},
+                "notes": "Supplier return credit note",
+            }
+            try:
+                res = cpis_post(
+                    "/stock/movements", payload, {"Idempotency-Key": idem, "X-Source-System": CPIS_SOURCE_SYSTEM}
+                )
+                movements.append({"packId": l.packId, "quantity": -abs(l.qtyPacks), "accepted": True, "result": res})
+            except requests.HTTPError as e:
+                body = e.response.text if e.response is not None else str(e)
+                movements.append({"packId": l.packId, "quantity": -abs(l.qtyPacks), "accepted": False, "error": body})
+    doc["cpisMovements"] = movements
+    doc["movementsFailed"] = len([m for m in movements if not m["accepted"]])
+    await db.credit_notes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.delete("/credit-notes/{cn_id}")
+async def delete_credit_note(cn_id: str, current=Depends(require_admin)):
+    await db.credit_notes.delete_one({"id": cn_id})
     return {"ok": True}
 
 
