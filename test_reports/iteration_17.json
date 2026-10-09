@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 17: Phase 2 (purchasing intelligence) + Phase 3 (stock control & credit notes) backend fully validated end-to-end with real CPIS integration. 8/8 pytest passed sequentially. Frontend smoke test confirms all referenced data-testids are rendered on /needs-ordering, /credit-notes (modal), and /pricing. All test-created POs, credit notes, min-levels deleted; all CPIS stock movements reversed so net stock is unchanged.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration17_phase2_phase3.py",
+    "/app/test_reports/pytest/iteration17.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1816 lines – strongly recommend splitting into routers (auth, cpis, purchasing, pricing, stock, credit_notes).",
+    "GET /cpis/products supplier-code search issues a separate Mongo query against db.supplier_products on EVERY search call – fine today but worth an index on supplier_products.supplierCode once volumes grow.",
+    "/pack-other-suppliers only considers db.price_history (populated only on PO close). A supplier that has quoted/entered a price in Pricing but never closed a PO will be invisible to this insight – acceptable but worth documenting.",
+    "/needs-ordering silently returns 0 'available' when CPIS stock/query raises HTTPError, which can produce a false-positive 'below minimum' when CPIS is briefly down. Consider surfacing a 'stockUnknown' flag.",
+    "Credit-note 'return' uses reason='DISPATCH' for a supplier RETURN – semantically a supplier return is more of a RETURN/RTS reason. Works with CPIS today, but may become confusing in audit reports.",
+    "No DELETE endpoint for db.supplier_products or db.supplier_pack_configs – once created they can only be updated, not removed via API. Fine for the current workflow but note for future cleanup."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration17_phase2_phase3.py",
+    "/app/test_reports/iteration_17.json"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% smoke (all testids present)"},
+  "test_credentials": "Admin admin@eurasia.com/admin123; CPIS X-API-Key cpis_live_b816c49c3d904926ab099562e275cc2cae5e007e",
+  "seed_data_creation": "During test run: 1 supplier_products row, 2 supplier_pack_configs upserts, 1 PO (then closed and deleted), 1 price_history entry, 1 product_min_level (then deleted), 2 credit_notes (then deleted). CPIS: +1 MUSBX1 (PO close) reversed with -1; -1 MUSBX1 (return CN) reversed with +1. Net CPIS stock delta = 0. Residual mongo-only items left behind by APIs that have no DELETE route: supplier_products row (sup=suppliers[0], productId=P1) and 2 supplier_pack_configs rows – these only affect pricing meta-data for the TEST targets freveg20/ambdri03.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Phase 2 + Phase 3 features confirmed working: supplier-code save+search via /supplier-products + /cpis/products, bulk pack-cost upload /supplier-pack-configs/bulk, /frequent-products (PO history aggregation), /pack-other-suppliers (uses price_history), /min-levels + /needs-ordering + /min-levels/check (live CPIS), /credit-notes (price_only no stock + return posts negative /stock/movements with Idempotency-Key). The test file /app/backend/tests/test_iteration17_phase2_phase3.py MUST be re-run with -n 0 (no xdist) because the session-scoped `state` fixture is per-worker; running with the default xdist loadscope split cleanup across workers (handled this iteration via a manual mop-up pass). Consider adding a conftest-level finalizer or marking Z_Cleanup xdist_group together with everything else.",
+  "rca of the issue": "N/A – no bug found. One meta-issue surfaced: pytest-xdist loadscope distribution split tests across workers so the final cleanup class only cleaned docs created in its own worker. First parallel run left 1 closed PO + 2 CNs + CPIS +1/-1 pair. Mitigation: re-ran with -n 0 for the final iteration, and additionally issued a manual admin cleanup script to delete the orphan docs. Net CPIS impact 0 (the orphan +1 PO close and -1 return CN cancelled)."
+}

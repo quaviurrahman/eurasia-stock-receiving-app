@@ -132,7 +132,27 @@ Archive tool to download + remove records older than 3 months.
   (proxy to CPIS /packs/resolve). Unknown codes are reported and skipped; found rows become PO lines with
   all fields mapped (SHORT badge auto-applies when received < qty). Verified via curl + UI screenshot.
 
-## Implemented (2026-10) — Phase 1: best-before batches + quick wins
+## Implemented (2026-10) — Phase 2 + 3 (verified iteration_17, 100%)
+Phase 2 — Purchasing intelligence:
+- Supplier-wise supplier CODE per (supplier,product): collection supplier_products; saved from the New PO
+  line (po-line-suppliercode) and from the Pricing page per-product editor. cpis_products search now also
+  matches supplier codes (New PO + Pricing search).
+- Bulk cost-price upload (Pricing page): pick supplier + CSV (pack code, cost price) -> resolve via CPIS ->
+  POST /supplier-pack-configs/bulk upserts supplier pack prices.
+- Frequently-ordered products after choosing a supplier in New PO (GET /frequent-products; frequency +
+  last purchased date; click chip to add line).
+- Other suppliers' last purchase price + date in the PO line Trend & stock panel (GET /pack-other-suppliers).
+Phase 3 — Stock control & credit notes:
+- Min stock level per product (product_min_levels); "Needs Ordering" page lists products whose live CPIS
+  available <= min; New PO line shows LOW STOCK badge (GET /min-levels/check). GET /needs-ordering uses
+  CPIS /stock/query.
+- Credit notes (credit_notes, auto CN-000X): price_only = value only (no stock); return = also posts a
+  NEGATIVE CPIS /stock/movements (reason DISPATCH, reference credit_note). List + delete.
+- New endpoints: /supplier-products, /supplier-pack-configs/bulk, /frequent-products, /pack-other-suppliers,
+  /min-levels (+ /check), /needs-ordering, /credit-notes. New pages NeedsOrderingPage, CreditNotesPage;
+  nav Needs Order + Credits (admin).
+
+
 - Best-before batch tracking (CPIS is source of truth; tracking/rule set in CPIS, not here):
   * PO line has optional "Best before (batch)" date; on close it's sent as best_before_date on the CPIS
     goods-receipt (required for batch-tracked products; untracked ignore it). POLine.bestBeforeDate added.
