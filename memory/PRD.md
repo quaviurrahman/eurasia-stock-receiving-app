@@ -187,3 +187,10 @@ Phase 3 — Stock control & credit notes:
 
 ## Test Credentials
 Admin: admin@eurasia.com / admin123 · Staff PIN: 1234
+
+
+## 2026-06 — Credit notes against Purchase Orders
+- Credit notes now always need a CLOSED PO (poId). Supplier and invoice come from the PO.
+- Lines are PO lines (lineIndex) with a credit qty. Each line is capped at the received qty (receivedPacks, or quantityPacks if blank) minus what's already credited across all CNs. The backend blocks over-crediting.
+- Price-only: qty × price reduction per pack. Return: qty × PO pack price (can be edited) and also posts a negative CPIS stock movement.
+- The PO API returns lines[].creditedPacks, creditTotal and creditNotes[]. The PO page shows a "Credited £X" badge and a "Raise credit note" button (/credit-notes?poId=).

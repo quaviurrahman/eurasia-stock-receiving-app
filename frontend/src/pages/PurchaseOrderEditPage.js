@@ -39,6 +39,7 @@ import {
   AlertTriangle,
   Upload,
   FileDown,
+  FileMinus,
 } from "lucide-react";
 
 const money = (n) => `£${(Number(n) || 0).toFixed(2)}`;
@@ -56,6 +57,7 @@ const PurchaseOrderEditPage = () => {
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState([]);
   const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [creditTotal, setCreditTotal] = useState(0);
   const [linkedReceivalId, setLinkedReceivalId] = useState(null);
   const [poId, setPoId] = useState(isNew ? null : id);
   const [saving, setSaving] = useState(false);
@@ -149,6 +151,7 @@ const PurchaseOrderEditPage = () => {
           );
           setLines(enriched);
           setInvoiceNumber(data.invoiceNumber || "");
+          setCreditTotal(data.creditTotal || 0);
           setLinkedReceivalId(data.linkedReceivalId || null);
           setPoId(data.id);
         } catch {
@@ -648,6 +651,11 @@ const PurchaseOrderEditPage = () => {
                 Invoice #{invoiceNumber}
               </Badge>
             )}
+            {creditTotal > 0 && (
+              <Badge variant="outline" className="rounded-sm ml-2 tnum border-amber-600 text-amber-700" data-testid="po-credit-badge">
+                Credited {money(creditTotal)}
+              </Badge>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
@@ -659,6 +667,16 @@ const PurchaseOrderEditPage = () => {
           >
             <Printer size={16} className="mr-2" /> Print
           </Button>
+          {closed && (
+            <Button
+              onClick={() => navigate(`/credit-notes?poId=${poId}`)}
+              variant="outline"
+              className="h-11 rounded-sm"
+              data-testid="po-raise-credit-btn"
+            >
+              <FileMinus size={16} className="mr-2" /> Raise credit note
+            </Button>
+          )}
           {!closed && (
             <Button
               onClick={save}

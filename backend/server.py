@@ -400,19 +400,14 @@ class MinLevelInput(BaseModel):
 
 
 class CreditNoteLine(BaseModel):
-    productId: Optional[str] = None
-    packId: Optional[str] = None
-    productName: Optional[str] = None
-    packName: Optional[str] = None
-    packShortCode: Optional[str] = None
-    unitQuantity: float = 1
-    baseUnit: Optional[str] = None
-    qtyPacks: Optional[float] = None
-    amount: float = 0
+    lineIndex: int
+    qtyPacks: float
+    priceReduction: Optional[float] = None
+    amount: Optional[float] = None
 
 
 class CreditNoteInput(BaseModel):
-    supplierId: str
+    poId: str
     type: str = "price_only"
     reason: str = ""
     note: str = ""
@@ -1184,12 +1179,31 @@ async def _next_po_number() -> str:
     return f"PO-{seq:04d}"
 
 
+def _po_received(ln: dict) -> float:
+    r = ln.get("receivedPacks")
+    return float(r if r is not None else (ln.get("quantityPacks") or 0))
+
+
+async def _po_credits(po_id: str):
+    notes = await db.credit_notes.find({"poId": po_id}, {"_id": 0}).to_list(1000)
+    credited = {}
+    for n in notes:
+        for l in n.get("lines", []):
+            i = l.get("lineIndex")
+            credited[i] = credited.get(i, 0) + float(l.get("qtyPacks") or 0)
+    return notes, credited
+
+
 async def _enrich_po(po: dict) -> dict:
     supplier = await db.suppliers.find_one({"id": po.get("supplierId")}, {"_id": 0}) if po.get("supplierId") else None
     po["supplier"] = supplier
-    for ln in po.get("lines", []):
+    notes, credited = await _po_credits(po["id"])
+    for idx, ln in enumerate(po.get("lines", [])):
         ln["lineTotal"] = round((ln.get("packPrice") or 0) * (ln.get("quantityPacks") or 0), 2)
+        ln["creditedPacks"] = credited.get(idx, 0)
     po["total"] = round(sum(l.get("lineTotal", 0) for l in po.get("lines", [])), 2)
+    po["creditTotal"] = round(sum(n.get("totalAmount") or 0 for n in notes), 2)
+    po["creditNotes"] = [{"id": n["id"], "number": n["number"], "type": n["type"], "totalAmount": n.get("totalAmount")} for n in notes]
     return po
 
 
@@ -1699,14 +1713,66 @@ async def list_credit_notes(current=Depends(require_admin)):
 
 @api_router.post("/credit-notes")
 async def create_credit_note(data: CreditNoteInput, current=Depends(require_admin)):
+    if data.type not in ("price_only", "return"):
+        raise HTTPException(status_code=400, detail="Invalid credit note type")
+    po = await db.purchase_orders.find_one({"id": data.poId}, {"_id": 0})
+    if not po:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if po.get("status") != "closed":
+        raise HTTPException(status_code=400, detail="Credit notes can only be raised against closed purchase orders")
+    lines_in = [l for l in data.lines if l.qtyPacks and l.qtyPacks > 0]
+    if not lines_in:
+        raise HTTPException(status_code=400, detail="Enter a credit quantity on at least one line")
+    _, credited = await _po_credits(data.poId)
+    po_lines = po.get("lines", [])
+    seen = {}
+    lines = []
+    for l in lines_in:
+        if l.lineIndex < 0 or l.lineIndex >= len(po_lines):
+            raise HTTPException(status_code=400, detail="Invalid PO line")
+        pl = po_lines[l.lineIndex]
+        seen[l.lineIndex] = seen.get(l.lineIndex, 0) + l.qtyPacks
+        remaining = _po_received(pl) - credited.get(l.lineIndex, 0)
+        if seen[l.lineIndex] > remaining + 1e-9:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{pl.get('productName') or pl.get('sku')}: only {remaining:g} pack(s) left to credit",
+            )
+        if data.type == "price_only":
+            if l.priceReduction is None or l.priceReduction <= 0:
+                raise HTTPException(status_code=400, detail="Price-only lines need a price reduction per pack")
+            amount = l.qtyPacks * l.priceReduction
+        else:
+            amount = l.amount if l.amount is not None else l.qtyPacks * (pl.get("packPrice") or 0)
+        lines.append(
+            {
+                "lineIndex": l.lineIndex,
+                "productId": pl.get("productId"),
+                "sku": pl.get("sku"),
+                "productName": pl.get("productName"),
+                "packId": pl.get("packId"),
+                "packName": pl.get("packName"),
+                "packShortCode": pl.get("packShortCode"),
+                "unitQuantity": pl.get("unitQuantity"),
+                "baseUnit": pl.get("baseUnit"),
+                "packPrice": pl.get("packPrice"),
+                "qtyPacks": l.qtyPacks,
+                "priceReduction": l.priceReduction if data.type == "price_only" else None,
+                "amount": round(amount, 2),
+            }
+        )
     number = await _next_number("cn_counter", "CN")
     now = datetime.now(timezone.utc).isoformat()
-    total = round(sum((l.amount or 0) for l in data.lines), 2)
+    total = round(sum(l["amount"] for l in lines), 2)
     doc = data.model_dump()
     doc.update(
         {
             "id": str(uuid.uuid4()),
             "number": number,
+            "supplierId": po.get("supplierId"),
+            "poNumber": po.get("poNumber"),
+            "invoiceNumber": data.invoiceNumber or po.get("invoiceNumber"),
+            "lines": lines,
             "totalAmount": total,
             "createdAt": now,
             "createdBy": current.get("name"),
@@ -1715,26 +1781,26 @@ async def create_credit_note(data: CreditNoteInput, current=Depends(require_admi
     )
     movements = []
     if data.type == "return":
-        for idx, l in enumerate(data.lines):
-            if not l.packId or not l.qtyPacks:
+        for idx, l in enumerate(lines):
+            if not l["packId"]:
                 continue
-            idem = f"cn:{doc['id']}:{l.packId}:{idx}"
+            idem = f"cn:{doc['id']}:{l['packId']}:{idx}"
             payload = {
-                "pack_id": l.packId,
-                "quantity": str(-abs(l.qtyPacks)),
+                "pack_id": l["packId"],
+                "quantity": str(-abs(l["qtyPacks"])),
                 "bucket": "SELLABLE",
                 "reason": "DISPATCH",
                 "reference": {"type": "credit_note", "id": number},
-                "notes": "Supplier return credit note",
+                "notes": f"Supplier return credit note against {po.get('poNumber')}",
             }
             try:
                 res = cpis_post(
                     "/stock/movements", payload, {"Idempotency-Key": idem, "X-Source-System": CPIS_SOURCE_SYSTEM}
                 )
-                movements.append({"packId": l.packId, "quantity": -abs(l.qtyPacks), "accepted": True, "result": res})
+                movements.append({"packId": l["packId"], "quantity": -abs(l["qtyPacks"]), "accepted": True, "result": res})
             except requests.HTTPError as e:
                 body = e.response.text if e.response is not None else str(e)
-                movements.append({"packId": l.packId, "quantity": -abs(l.qtyPacks), "accepted": False, "error": body})
+                movements.append({"packId": l["packId"], "quantity": -abs(l["qtyPacks"]), "accepted": False, "error": body})
     doc["cpisMovements"] = movements
     doc["movementsFailed"] = len([m for m in movements if not m["accepted"]])
     await db.credit_notes.insert_one(doc)
