@@ -122,6 +122,24 @@ const ApiGuidePage = () => {
         />
       </div>
 
+      <Card className="rounded-sm border-border p-5 mt-6" data-testid="bbd-guide-section">
+        <h2 className="font-head font-bold text-lg mb-2">Stock receipts &amp; best-before batches</h2>
+        <p className="text-sm text-muted-foreground mb-2">
+          Closing a purchase order posts a positive goods-receipt to CPIS (<code>POST /stock/receipts</code>)
+          for each line. For products with CPIS best-before (batch) tracking enabled, the line's
+          <b> best-before date</b> is captured at receive and sent as <code>best_before_date</code> (required
+          by CPIS for tracked products). Products without tracking ignore the date and behave as before.
+        </p>
+        <Code>{`POST /stock/receipts
+{ "pack_id": "...", "quantity": "10",
+  "best_before_date": "2026-12-31",
+  "reference": { "type": "purchase_order", "id": "PO-0001" } }`}</Code>
+        <p className="text-xs text-muted-foreground mt-2">
+          Live stock views in this app show the CPIS batch breakdown (per best-before date, with expiry
+          flags) and the active pick rule (FEFO / FIFO / LIFO), configured in CPIS per product.
+        </p>
+      </Card>
+
       <p className="text-xs text-muted-foreground mt-6">
         Price points are recorded automatically each time a purchase order is closed. All amounts are in the
         purchasing currency configured for your account.

@@ -321,6 +321,7 @@ class POLine(BaseModel):
     baseUnit: Optional[str] = None
     quantityPacks: float = 0
     receivedPacks: Optional[float] = None
+    bestBeforeDate: Optional[str] = None
     packPrice: Optional[float] = None
     perUnitPrice: Optional[float] = None
     unitsPerLayer: Optional[float] = None
@@ -1256,6 +1257,8 @@ async def close_purchase_order(po_id: str, data: PurchaseOrderClose, current=Dep
             "quantity": str(qty),
             "reference": {"type": "purchase_order", "id": po.get("poNumber")},
         }
+        if ln.get("bestBeforeDate"):
+            payload["best_before_date"] = ln["bestBeforeDate"]
         try:
             res = cpis_post(
                 "/stock/receipts",

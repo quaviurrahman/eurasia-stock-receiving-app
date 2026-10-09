@@ -132,6 +132,26 @@ Archive tool to download + remove records older than 3 months.
   (proxy to CPIS /packs/resolve). Unknown codes are reported and skipped; found rows become PO lines with
   all fields mapped (SHORT badge auto-applies when received < qty). Verified via curl + UI screenshot.
 
+## Implemented (2026-10) — Phase 1: best-before batches + quick wins
+- Best-before batch tracking (CPIS is source of truth; tracking/rule set in CPIS, not here):
+  * PO line has optional "Best before (batch)" date; on close it's sent as best_before_date on the CPIS
+    goods-receipt (required for batch-tracked products; untracked ignore it). POLine.bestBeforeDate added.
+  * Trend & stock panel shows CPIS batch breakdown (batches[] by best-before, expiry flag, pick rule,
+    unbatched_on_hand) when the product is batch-tracked.
+  * API Guide page documents stock receipts + best-before.
+- Calculator-style slip entry: space/comma/+ commits each number, keypad stays open (Enter/+ also work).
+- Favicon already uses the app logo.
+
+## Remaining roadmap (user-confirmed, not yet built)
+- Phase 2 (Purchasing intelligence): supplier-wise supplier codes (save from New PO + dedicated per-product
+  supplier-info editor); supplier-code search in New PO + Pricing; frequently-ordered products after
+  choosing a supplier (frequency + last purchased date); other suppliers' last purchase price + date in the
+  trend/stock panel; bulk cost-price upload.
+- Phase 3 (Stock control & credit notes): min stock level per product + "Needs ordering" page + PO highlight
+  when live stock <= min; supplier credit notes (price-only = value only; return = also posts negative CPIS
+  stock movement). Capture best-before at receival intake too.
+
+
 ## Known platform blocker (not app code)
 - Emergent Object Storage WRITES return 402 "Storage access suspended" (init + reads OK). This blocks
   saving NEW receival photos/signatures. Per support: undocumented account-level suspension, unrelated to

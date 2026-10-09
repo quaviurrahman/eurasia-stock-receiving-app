@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Plus, X, Trash2, Calculator } from "lucide-react";
 
 export const fmt = (n) => {
@@ -11,15 +10,28 @@ export const fmt = (n) => {
 
 const SlipCard = ({ index, slip, onUpdate, onRemove }) => {
   const [val, setVal] = useState("");
+  const inputRef = useRef(null);
   const entries = slip.entries || [];
   const sum = entries.reduce((a, b) => a + (Number(b) || 0), 0);
 
-  const addEntry = () => {
-    const n = parseFloat(val);
-    if (isNaN(n)) return;
-    onUpdate({ ...slip, entries: [...entries, n] });
-    setVal("");
+  // Calculator-style: separators (space, comma, +, Enter) commit numbers; keyboard stays open.
+  const commit = (raw, keepLast) => {
+    const parts = String(raw).split(/[\s,+]+/);
+    let remainder = "";
+    if (keepLast) remainder = parts.pop() ?? "";
+    const nums = parts.map((p) => parseFloat(p)).filter((n) => !isNaN(n));
+    if (nums.length) onUpdate({ ...slip, entries: [...entries, ...nums] });
+    setVal(remainder);
+    inputRef.current?.focus();
   };
+
+  const onChange = (e) => {
+    const v = e.target.value;
+    if (/[\s,+]/.test(v)) commit(v, true);
+    else setVal(v);
+  };
+
+  const addEntry = () => commit(val, false);
   const removeEntry = (k) => onUpdate({ ...slip, entries: entries.filter((_, j) => j !== k) });
 
   return (
@@ -44,17 +56,18 @@ const SlipCard = ({ index, slip, onUpdate, onRemove }) => {
 
       <div className="flex gap-2">
         <Input
-          type="number"
+          ref={inputRef}
+          type="text"
           inputMode="decimal"
           value={val}
-          onChange={(e) => setVal(e.target.value)}
+          onChange={onChange}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
               addEntry();
             }
           }}
-          placeholder="Enter a number…"
+          placeholder="Type a number, press space / , / + to add…"
           className="h-11 rounded-sm tnum"
           data-testid={`slip-entry-input-${index}`}
         />
@@ -62,6 +75,7 @@ const SlipCard = ({ index, slip, onUpdate, onRemove }) => {
           <Plus size={16} />
         </Button>
       </div>
+      <p className="text-[11px] text-muted-foreground mt-1">Tip: keep typing — a space, comma or + adds each number and keeps the keypad open.</p>
 
       {entries.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-3">

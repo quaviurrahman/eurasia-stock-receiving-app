@@ -393,6 +393,7 @@ const PurchaseOrderEditPage = () => {
       unitQuantity: Number(l.unitQuantity) || 1,
       quantityPacks: num(l.quantityPacks) || 0,
       receivedPacks: num(l.receivedPacks),
+      bestBeforeDate: l.bestBeforeDate || null,
       packPrice: num(l.packPrice),
       unitsPerLayer: num(l.unitsPerLayer),
       unitsPerPallet: num(l.unitsPerPallet),
@@ -824,6 +825,23 @@ const PurchaseOrderEditPage = () => {
                 </div>
               </div>
 
+              <div className="mt-3 flex items-center gap-2">
+                <label className="text-xs text-muted-foreground flex items-center gap-1">
+                  Best before (batch)
+                </label>
+                <Input
+                  type="date"
+                  value={l.bestBeforeDate || ""}
+                  onChange={(e) => setLine(idx, { bestBeforeDate: e.target.value })}
+                  className="h-9 rounded-sm w-44 tnum"
+                  disabled={closed}
+                  data-testid={`po-line-bbd-${idx}`}
+                />
+                <span className="text-[11px] text-muted-foreground">
+                  required at receive for batch-tracked products
+                </span>
+              </div>
+
               {openInsight === idx && (
                 <div className="mt-4 border-t border-border pt-4" data-testid={`po-line-insight-panel-${idx}`}>
                   {insight[idx]?.loading ? (
@@ -855,6 +873,39 @@ const PurchaseOrderEditPage = () => {
                             </div>
                           ))}
                         </div>
+                        {insight[idx]?.stock?.batch_tracking && (
+                          <div className="mt-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                              Batches · {insight[idx]?.stock?.batch_pick_rule || "FEFO"}
+                            </div>
+                            <div className="space-y-1">
+                              {(insight[idx]?.stock?.batches || []).length === 0 ? (
+                                <div className="text-[11px] text-muted-foreground">No batches on hand.</div>
+                              ) : (
+                                (insight[idx]?.stock?.batches || []).map((b) => (
+                                  <div
+                                    key={b.batch_id}
+                                    className={`flex justify-between text-[11px] tnum px-2 py-1 rounded-sm ${
+                                      b.is_expired ? "bg-destructive/10 text-destructive" : "bg-secondary/50"
+                                    }`}
+                                  >
+                                    <span>
+                                      BBD {b.best_before_date}
+                                      {b.is_expired ? " · expired" : ` · ${b.days_to_expiry}d`}
+                                    </span>
+                                    <span>{b.available} {insight[idx]?.stock?.base_unit}</span>
+                                  </div>
+                                ))
+                              )}
+                              {Number(insight[idx]?.stock?.unbatched_on_hand) > 0 && (
+                                <div className="flex justify-between text-[11px] tnum px-2 py-1 rounded-sm bg-secondary/50">
+                                  <span>Unbatched</span>
+                                  <span>{insight[idx]?.stock?.unbatched_on_hand}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-2">
