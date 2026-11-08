@@ -1,7 +1,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --network-timeout 600000
+COPY package.json yarn.lock* yarn-lock.txt* ./
+RUN if [ ! -f yarn.lock ] && [ -f yarn-lock.txt ]; then cp yarn-lock.txt yarn.lock; fi; \
+    if [ -f yarn.lock ]; then yarn install --frozen-lockfile --network-timeout 600000; \
+    else yarn install --network-timeout 600000; fi
 COPY . .
 # Empty = same-origin: the browser calls /api on the same host, nginx proxies it to the backend.
 ARG REACT_APP_BACKEND_URL=""

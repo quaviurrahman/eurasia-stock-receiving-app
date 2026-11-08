@@ -205,3 +205,4 @@ Admin: admin@eurasia.com / admin123 · Staff PIN: 1234
 - Backup and restore were tested against a throwaway local-storage instance. The Docker build was NOT run (no Docker in the preview).
 
 - UPDATE (CPIS-style layout): /app/deploy was removed. The files now sit at the repo root: docker-compose.yml (project eurasia-intake, HTTP_PORT default 8080, CORS=PUBLIC_URL), local.env.example (copy to .env) and DEPLOY_LOCAL.md. CPIS is reached by its LAN address (CPIS_BASE_URL=http://<ip>/api). backend/local_storage.py (LocalStore). backend/scripts/migrate_from_online.py logs in to the online app, pulls /api/admin/backup and writes it into local Mongo and the uploads (tested against the preview into a temp DB).
+- Docker: frontend/yarn-lock.txt is a copy of yarn.lock (yarn.lock isn't pushed to GitHub). The Dockerfile falls back to it. Refresh it after adding deps: cp frontend/yarn.lock frontend/yarn-lock.txt
