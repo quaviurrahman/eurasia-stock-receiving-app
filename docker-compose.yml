@@ -1,4 +1,4 @@
-name: eurasia
+name: eurasia-intake
 
 services:
   mongo:
@@ -6,8 +6,6 @@ services:
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db
-    ports:
-      - "127.0.0.1:27018:27017"
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -15,12 +13,13 @@ services:
       retries: 10
 
   backend:
-    build: ../backend
+    build: ./backend
     restart: unless-stopped
-    env_file: ./local.env
+    env_file: .env
     environment:
       MONGO_URL: mongodb://mongo:27017
       LOCAL_STORAGE_DIR: /data/uploads
+      CORS_ORIGINS: ${PUBLIC_URL}
     volumes:
       - uploads:/data/uploads
     depends_on:
@@ -28,23 +27,15 @@ services:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    networks:
-      - default
-      - cpis
 
   frontend:
-    build: ../frontend
+    build: ./frontend
     restart: unless-stopped
     ports:
-      - "${APP_PORT:-8080}:80"
+      - "${HTTP_PORT:-8080}:80"
     depends_on:
       - backend
 
 volumes:
   mongo_data:
   uploads:
-
-networks:
-  cpis:
-    name: ${CPIS_NETWORK:-cpis_shared}
-    external: true

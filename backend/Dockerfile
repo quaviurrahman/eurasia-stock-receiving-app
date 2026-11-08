@@ -7,6 +7,7 @@ COPY requirements.docker.txt .
 RUN pip install --no-cache-dir -r requirements.docker.txt
 
 COPY server.py local_storage.py ./
+COPY scripts ./scripts
 
 EXPOSE 8001
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
