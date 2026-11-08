@@ -10,12 +10,19 @@ import time
 import base64
 import logging
 import re
+import io
+import json
+import zipfile
+import tempfile
+import mimetypes
 from datetime import datetime, timezone, timedelta
 
 import jwt
 import bcrypt
 import requests
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, Header, UploadFile, File
+from fastapi.responses import FileResponse
+from bson import json_util
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -38,6 +45,7 @@ APP_NAME = "eurasia-receivals"
 STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
 STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+LOCAL_STORAGE_DIR = (os.environ.get("LOCAL_STORAGE_DIR") or "").strip()
 
 CPIS_BASE_URL = (os.environ.get("CPIS_BASE_URL") or "").rstrip("/")
 CPIS_API_KEY = os.environ.get("CPIS_API_KEY")
@@ -67,7 +75,16 @@ def init_storage(force: bool = False):
     return storage_key
 
 
+local_store = None
+if LOCAL_STORAGE_DIR:
+    from local_storage import LocalStore
+
+    local_store = LocalStore(LOCAL_STORAGE_DIR)
+
+
 def put_object(path: str, data: bytes, content_type: str) -> dict:
+    if local_store:
+        return local_store.put(path, data)
     key = init_storage()
     last = None
     for attempt in range(3):
@@ -92,6 +109,8 @@ def put_object(path: str, data: bytes, content_type: str) -> dict:
 
 
 def get_object(path: str):
+    if local_store:
+        return local_store.get(path)
     key = init_storage()
     resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
     if resp.status_code == 404:
@@ -1827,15 +1846,84 @@ async def serve_file(path: str):
 
 
 # ---------------------------------------------------------------------------
+# Full backup / restore (database + uploaded files)
+# ---------------------------------------------------------------------------
+def _file_paths(receivals: list) -> set:
+    paths = set()
+    for r in receivals:
+        paths.update(p for p in r.get("images", []) if isinstance(p, str))
+        paths.update(s.get("path") for s in r.get("signatures", []) if s.get("path"))
+    return paths
+
+
+@api_router.get("/admin/backup")
+async def full_backup(includeFiles: bool = True, current=Depends(require_admin)):
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
+    tmp.close()
+    names = await db.list_collection_names()
+    missing = []
+    with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as z:
+        receivals = []
+        for name in names:
+            docs = await db[name].find({}).to_list(None)
+            if name == "receivals":
+                receivals = docs
+            z.writestr(f"db/{name}.json", json_util.dumps(docs))
+        if includeFiles:
+            for path in sorted(_file_paths(receivals)):
+                try:
+                    data, _ = get_object(path)
+                    z.writestr(f"files/{path}", data)
+                except Exception:
+                    missing.append(path)
+        z.writestr(
+            "manifest.json",
+            json.dumps({"createdAt": datetime.now(timezone.utc).isoformat(), "collections": names, "missingFiles": missing}),
+        )
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    return FileResponse(tmp.name, media_type="application/zip", filename=f"eurasia-backup-{stamp}.zip")
+
+
+@api_router.post("/admin/restore")
+async def full_restore(file: UploadFile = File(...), current=Depends(require_admin)):
+    raw = await file.read()
+    try:
+        z = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Not a valid backup zip")
+    if "manifest.json" not in z.namelist():
+        raise HTTPException(status_code=400, detail="Backup manifest missing")
+    restored, files = {}, 0
+    for n in z.namelist():
+        if n.startswith("db/") and n.endswith(".json"):
+            name = n[3:-5]
+            docs = json_util.loads(z.read(n))
+            await db[name].delete_many({})
+            if docs:
+                await db[name].insert_many(docs)
+            restored[name] = len(docs)
+        elif n.startswith("files/") and not n.endswith("/"):
+            try:
+                put_object(n[6:], z.read(n), mimetypes.guess_type(n)[0] or "application/octet-stream")
+                files += 1
+            except Exception as e:
+                logger.error(f"Restore file failed {n}: {e}")
+    return {"collections": restored, "files": files}
+
+
+# ---------------------------------------------------------------------------
 # Startup
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 async def startup():
-    try:
-        init_storage()
-        logger.info("Object storage initialized")
-    except Exception as e:
-        logger.error(f"Storage init failed: {e}")
+    if local_store:
+        logger.info(f"Local file storage at {LOCAL_STORAGE_DIR}")
+    else:
+        try:
+            init_storage()
+            logger.info("Object storage initialized")
+        except Exception as e:
+            logger.error(f"Storage init failed: {e}")
 
     existing = await db.users.find_one({"email": ADMIN_EMAIL.lower()})
     if existing is None:

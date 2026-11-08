@@ -194,3 +194,12 @@ Admin: admin@eurasia.com / admin123 · Staff PIN: 1234
 - Lines are PO lines (lineIndex) with a credit qty. Each line is capped at the received qty (receivedPacks, or quantityPacks if blank) minus what's already credited across all CNs. The backend blocks over-crediting.
 - Price-only: qty × price reduction per pack. Return: qty × PO pack price (can be edited) and also posts a negative CPIS stock movement.
 - The PO API returns lines[].creditedPacks, creditTotal and creditNotes[]. The PO page shows a "Credited £X" badge and a "Raise credit note" button (/credit-notes?poId=).
+
+
+## 2026-06 — Local Windows/Docker deployment
+- /app/deploy: docker-compose.yml (mongo:7, backend, frontend nginx on APP_PORT 8080), local.env.example, .env.example, windows/start|stop|backup|restore.ps1, README_LOCAL_DEPLOY.md.
+- backend/Dockerfile (+ requirements.docker.txt, minimal) and frontend/Dockerfile (yarn build with REACT_APP_BACKEND_URL="" for same-origin /api, nginx.conf proxies /api to backend:8001).
+- Local file storage: if the LOCAL_STORAGE_DIR env is set, put_object/get_object use the disk (path-traversal safe). If it's unset, the Emergent object storage is used (preview/prod unchanged).
+- CPIS is reached over the external Docker network CPIS_NETWORK (default cpis_shared), or host.docker.internal.
+- Admin → Backup tab: GET /api/admin/backup (zip of every collection via bson json_util plus the receival photo/signature files) and POST /api/admin/restore (replaces collections and writes files). Both are admin only.
+- Backup and restore were tested against a throwaway local-storage instance. The Docker build was NOT run (no Docker in the preview).

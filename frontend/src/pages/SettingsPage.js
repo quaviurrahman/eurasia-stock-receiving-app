@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Plus, Trash2, Download, Archive } from "lucide-react";
+import { BackupPanel } from "@/components/BackupPanel";
 
 const CrudList = ({ title, items, onAdd, onDelete, placeholder, extraField, testid }) => {
   const [name, setName] = useState("");
@@ -207,12 +208,13 @@ const SettingsPage = () => {
     <div className="max-w-3xl mx-auto">
       <h1 className="font-head font-black text-3xl sm:text-4xl tracking-tight mb-6">Admin</h1>
       <Tabs defaultValue="suppliers">
-        <TabsList className="rounded-sm h-auto grid grid-cols-5 w-full p-1">
+        <TabsList className="rounded-sm h-auto grid grid-cols-3 sm:grid-cols-6 w-full p-1">
           <TabsTrigger value="suppliers" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-suppliers">Suppliers</TabsTrigger>
           <TabsTrigger value="locations" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-locations">Locations</TabsTrigger>
           <TabsTrigger value="statuses" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-statuses">Statuses</TabsTrigger>
           <TabsTrigger value="staff" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-staff">Staff PINs</TabsTrigger>
           <TabsTrigger value="archive" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-archive">Archive</TabsTrigger>
+          <TabsTrigger value="backup" className="text-xs sm:text-sm px-1 py-2" data-testid="tab-backup">Backup</TabsTrigger>
         </TabsList>
 
         <TabsContent value="suppliers" className="mt-4">
@@ -379,6 +381,9 @@ const SettingsPage = () => {
               </Button>
             </div>
           </Card>
+        </TabsContent>
+        <TabsContent value="backup" className="mt-4">
+          <BackupPanel />
         </TabsContent>
       </Tabs>
     </div>
